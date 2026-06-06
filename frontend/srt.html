@@ -155,6 +155,11 @@
       <span>save_output=true：後端同時把 .srt 存到 output/</span>
     </label>
 
+    <label class="save-row">
+      <input type="checkbox" id="professionalOptimization">
+      <span>專業字幕優化：改善 mixed/VAD 短段切割，並保守合併太短字幕、修正重疊與教材格式</span>
+    </label>
+
     <div class="settings-actions">
       <button class="btn btn-danger" id="clearOutputBtn" type="button">清空 output/</button>
     </div>
@@ -192,12 +197,13 @@
     ※ 如果所有例外時間段都是同一種語言，請在預設例外語言裡只選一個語言，例如 Japanese；下面就只需要輸入 <strong>0-3</strong>、<strong>12-18</strong>，不用重複寫 ja。<br>
     ※ 時間格式支援秒數、mm:ss、hh:mm:ss；語言碼支援 auto、mixed、ko、ja、vi、zh、en。<br>
     ※ 如果整條音檔都頻繁混合多種語言，才選 Mixed multilingual；它會先用 VAD 切段，再逐段偵測語言與轉錄。<br>
+    ※ 「專業字幕優化」是可選模式；未勾選時會保持原本輸出。勾選後才會啟用保守的 VAD 短段合併、前後 context padding、短字幕合併、重疊時間修正，以及像 <strong>94%ページ → 94ページ</strong>、<strong>第 10 課 → 第10課</strong> 這類教材格式修正。<br>
     ※ 「檢查模型版本」只會比較本地 cache 與 Hugging Face 遠端版本，不會下載或更新模型。<br>
     ※ 前端只負責上傳音訊、顯示 SRT、下載與複製字幕。後端使用 <strong>FastAPI + faster-whisper large-v3</strong>，不使用 OpenAI paid API，也不需要 API key。<br>
     ※ 第一次執行會下載模型；<strong>large-v3</strong> 在 CPU 上可能比較慢，目前預設 device=cpu、compute_type=int8。
   </div>
 </div>
 
-<script src="js/app.js?v=20260607-0030"></script>
+<script src="js/app.js?v=20260607-0040"></script>
 </body>
 </html>

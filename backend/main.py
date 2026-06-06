@@ -160,6 +160,7 @@ async def transcribe(
     mixed_ranges: str = Form(""),
     mixed_ranges_custom: bool = Form(False),
     mixed_ranges_default_language: str = Form(""),
+    professional_optimization: bool = Form(False),
 ) -> Response:
     check_rate_limit(get_client_key(request))
 
@@ -216,6 +217,7 @@ async def transcribe(
             str(temp_path),
             normalized_language,
             parsed_mixed_ranges,
+            professional_optimization,
         )
         srt_text = await asyncio.wait_for(
             asyncio.shield(asyncio.wrap_future(future)),
@@ -272,6 +274,7 @@ async def create_transcription_job(
     mixed_ranges: str = Form(""),
     mixed_ranges_custom: bool = Form(False),
     mixed_ranges_default_language: str = Form(""),
+    professional_optimization: bool = Form(False),
 ) -> dict[str, str]:
     cleanup_old_jobs()
     check_rate_limit(get_client_key(request))
@@ -336,6 +339,7 @@ async def create_transcription_job(
             str(temp_path),
             normalized_language,
             parsed_mixed_ranges,
+            professional_optimization,
         )
         future.add_done_callback(
             lambda done_future: finish_transcription_job(

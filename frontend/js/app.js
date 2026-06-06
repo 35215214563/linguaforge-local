@@ -244,6 +244,7 @@ async function startTranscription() {
   }
 
   const saveOutput = $('saveOutput').checked;
+  const professionalOptimization = $('professionalOptimization').checked;
   const rangeSettings = getRangeSettings();
   const rangeError = validateRangeSettings(rangeSettings);
   if (rangeError) {
@@ -265,6 +266,7 @@ async function startTranscription() {
       rangeSettings.text,
       rangeSettings.custom,
       rangeSettings.defaultLanguage,
+      professionalOptimization,
       abortController.signal,
     );
 
@@ -453,7 +455,16 @@ function parseTimeValueForValidation(value) {
   return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
 }
 
-async function transcribeWithFastAPI(audioFile, language, saveOutput, mixedRanges, mixedRangesCustom, mixedRangesDefaultLanguage, signal) {
+async function transcribeWithFastAPI(
+  audioFile,
+  language,
+  saveOutput,
+  mixedRanges,
+  mixedRangesCustom,
+  mixedRangesDefaultLanguage,
+  professionalOptimization,
+  signal,
+) {
   const formData = new FormData();
   formData.append('file', audioFile, audioFile.name);
   formData.append('language', language);
@@ -461,6 +472,7 @@ async function transcribeWithFastAPI(audioFile, language, saveOutput, mixedRange
   formData.append('mixed_ranges', mixedRanges);
   formData.append('mixed_ranges_custom', mixedRangesCustom ? 'true' : 'false');
   formData.append('mixed_ranges_default_language', mixedRangesDefaultLanguage || '');
+  formData.append('professional_optimization', professionalOptimization ? 'true' : 'false');
 
   setIndeterminateProgress();
   setStatus('正在上傳音訊並建立後端轉錄工作...', 'active');
