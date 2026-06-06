@@ -318,13 +318,13 @@ function updateRangeHelp() {
   const defaultLanguage = getDefaultExceptionLanguage();
 
   if (!isCustom) {
-    $('mixedRanges').placeholder = '例如：0-8\n01:12-01:20\n00:00:00,000 --> 00:00:03,000';
+    $('mixedRanges').placeholder = '例如：0-8\n8-01:12\n01:12-01:20\n00:00:00,000 --> 00:00:03,000';
     $('rangeHint').textContent = '未勾自定義：每行只輸入時間段，例如 0-8；這些區間會用 mixed 逐段偵測。';
     return;
   }
 
   if (defaultLanguage) {
-    $('mixedRanges').placeholder = '例如：0-3\n12-18\n00:00:00,000 --> 00:00:03,000';
+    $('mixedRanges').placeholder = '例如：0-3\n8-01:12\n00:00:00,000 --> 00:00:03,000';
     $('rangeHint').textContent = `已選預設例外語言：${LANGUAGE_LABELS[defaultLanguage]}。每行只輸入時間段，後端會自動套用 ${defaultLanguage}。`;
     return;
   }
@@ -463,8 +463,9 @@ function parseTimeValueForValidation(value) {
     return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
   }
 
-  const parts = normalized.split(':').map(part => Number(part));
-  if (![2, 3].includes(parts.length) || parts.some(part => !Number.isFinite(part) || part < 0)) {
+  const rawParts = normalized.split(':');
+  const parts = rawParts.map(part => Number(part));
+  if (![2, 3, 4].includes(parts.length) || parts.some(part => !Number.isFinite(part) || part < 0)) {
     return null;
   }
 
@@ -472,7 +473,15 @@ function parseTimeValueForValidation(value) {
     return (parts[0] * 60) + parts[1];
   }
 
-  return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+  if (parts.length === 3) {
+    return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+  }
+
+  if (!/^\d{1,3}$/.test(rawParts[3]) || parts[3] > 999) {
+    return null;
+  }
+
+  return (parts[0] * 3600) + (parts[1] * 60) + parts[2] + (parts[3] / 1000);
 }
 
 async function transcribeWithFastAPI(

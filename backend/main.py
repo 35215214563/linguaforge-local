@@ -640,7 +640,7 @@ def parse_time_value(raw_value: str) -> float:
         return seconds
 
     parts = value.split(":")
-    if len(parts) not in {2, 3}:
+    if len(parts) not in {2, 3, 4}:
         raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
 
     try:
@@ -655,8 +655,15 @@ def parse_time_value(raw_value: str) -> float:
         minutes, seconds = numeric_parts
         return (minutes * 60) + seconds
 
-    hours, minutes, seconds = numeric_parts
-    return (hours * 3600) + (minutes * 60) + seconds
+    if len(numeric_parts) == 3:
+        hours, minutes, seconds = numeric_parts
+        return (hours * 3600) + (minutes * 60) + seconds
+
+    hours, minutes, seconds, milliseconds = numeric_parts
+    if not re.match(r"^\d{1,3}$", parts[3]) or milliseconds > 999:
+        raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
+
+    return (hours * 3600) + (minutes * 60) + seconds + (milliseconds / 1000)
 
 
 def get_allowed_suffix(original_filename: str | None) -> str:
