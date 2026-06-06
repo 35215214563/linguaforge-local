@@ -354,10 +354,11 @@ function getDefaultExceptionLanguage() {
 
 function getRangeSettings() {
   if (!$('useMixedRanges').checked) {
-    return { text: '', custom: false, defaultLanguage: '' };
+    return { enabled: false, text: '', custom: false, defaultLanguage: '' };
   }
 
   return {
+    enabled: true,
     text: $('mixedRanges').value.trim(),
     custom: $('customRangeLanguages').checked,
     defaultLanguage: getDefaultExceptionLanguage(),
@@ -365,6 +366,10 @@ function getRangeSettings() {
 }
 
 function validateRangeSettings(rangeSettings) {
+  if (!rangeSettings.enabled) {
+    return '';
+  }
+
   if (!rangeSettings.text) {
     return '請輸入例外時間段，或取消勾選「指定混合 / 例外語言時間段」。';
   }
