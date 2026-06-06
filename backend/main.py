@@ -500,8 +500,8 @@ def parse_mixed_ranges(
         return []
 
     ranges: list[tuple[float, float, str]] = []
-    separators = raw_ranges.splitlines() if custom_languages else re.split(r"[\n,;]+", raw_ranges)
-    for line_number, raw_range in enumerate(separators, start=1):
+    range_items = split_mixed_range_items(raw_ranges, custom_languages)
+    for line_number, raw_range in enumerate(range_items, start=1):
         item = raw_range.strip()
         if not item:
             continue
@@ -516,16 +516,16 @@ def parse_mixed_ranges(
                 range_text = item
                 range_language = normalized_default_language
             else:
-                parts = re.split(r"\s+", item)
-                if len(parts) != 2:
+                match = re.match(r"^(.+?)\s+(auto|mixed|ko|ja|vi|zh|en)$", item, flags=re.IGNORECASE)
+                if not match:
                     raise HTTPException(
                         status_code=400,
                         detail=(
                             f"mixed_ranges line {line_number} must look like: "
-                            "0-3 ja, 12-18 mixed, or 01:20-01:28 en"
+                            "0-3 ja, 12-18 mixed, or 00:00:00,000 --> 00:00:03,000 ja"
                         ),
                     )
-                range_text, range_language = parts[0], parts[1].lower()
+                range_text, range_language = match.group(1).strip(), match.group(2).lower()
                 if range_language not in ALLOWED_LANGUAGES:
                     raise HTTPException(
                         status_code=400,
@@ -551,6 +551,13 @@ def parse_mixed_ranges(
     return ranges
 
 
+def split_mixed_range_items(raw_ranges: str, custom_languages: bool) -> list[str]:
+    if custom_languages:
+        return raw_ranges.splitlines()
+
+    return re.split(r"[\n;]+|,\s+", raw_ranges)
+
+
 def normalize_mixed_ranges_default_language(default_language: str, custom_languages: bool) -> str:
     normalized_language = default_language.strip().lower()
     if not normalized_language:
@@ -572,16 +579,41 @@ def normalize_mixed_ranges_default_language(default_language: str, custom_langua
 
 
 def parse_range_value(raw_range: str) -> tuple[float, float]:
-    match = re.match(r"^(.+?)\s*(?:-|~|到|至)\s*(.+)$", raw_range.strip())
-    if not match:
+    range_parts = split_range_value(raw_range)
+    if range_parts is None:
         raise HTTPException(
             status_code=400,
-            detail="mixed_ranges format must look like 12-18 or 00:01:12-00:01:20",
+            detail=(
+                "mixed_ranges format must look like 12-18, "
+                "00:01:12-00:01:20, or 00:00:00,000 --> 00:00:03,000"
+            ),
         )
 
-    start = parse_time_value(match.group(1).strip())
-    end = parse_time_value(match.group(2).strip())
+    start = parse_time_value(range_parts[0])
+    end = parse_time_value(range_parts[1])
     return start, end
+
+
+def split_range_value(raw_range: str) -> tuple[str, str] | None:
+    value = raw_range.strip()
+    if not value:
+        return None
+
+    arrow_parts = re.split(r"\s*-->\s*", value)
+    if len(arrow_parts) == 2 and arrow_parts[0].strip() and arrow_parts[1].strip():
+        return arrow_parts[0].strip(), arrow_parts[1].strip()
+    if len(arrow_parts) > 2:
+        return None
+
+    match = re.match(r"^(.+?)\s*(?:~|到|至)\s*(.+)$", value)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+
+    match = re.match(r"^(.+?)\s*-\s*(.+)$", value)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+
+    return None
 
 
 def ensure_ranges_do_not_overlap(ranges: list[tuple[float, float, str]]) -> None:

@@ -318,18 +318,18 @@ function updateRangeHelp() {
   const defaultLanguage = getDefaultExceptionLanguage();
 
   if (!isCustom) {
-    $('mixedRanges').placeholder = '例如：0-8\n01:12-01:20';
+    $('mixedRanges').placeholder = '例如：0-8\n01:12-01:20\n00:00:00,000 --> 00:00:03,000';
     $('rangeHint').textContent = '未勾自定義：每行只輸入時間段，例如 0-8；這些區間會用 mixed 逐段偵測。';
     return;
   }
 
   if (defaultLanguage) {
-    $('mixedRanges').placeholder = '例如：0-3\n12-18\n01:20-01:28';
+    $('mixedRanges').placeholder = '例如：0-3\n12-18\n00:00:00,000 --> 00:00:03,000';
     $('rangeHint').textContent = `已選預設例外語言：${LANGUAGE_LABELS[defaultLanguage]}。每行只輸入時間段，後端會自動套用 ${defaultLanguage}。`;
     return;
   }
 
-  $('mixedRanges').placeholder = '例如：0-3 ja\n12-18 mixed\n01:20-01:28 en';
+  $('mixedRanges').placeholder = '例如：0-3 ja\n12-18 mixed\n00:00:00,000 --> 00:00:03,000 ja';
   $('rangeHint').textContent = '自定義模式：每行必須是「時間段 語言碼」，例如 0-3 ja。語言碼支援 auto、mixed、ko、ja、vi、zh、en。';
 }
 
@@ -409,29 +409,49 @@ function validateDefaultLanguageRangeLine(line) {
 }
 
 function validateCustomRangeLine(line) {
-  const parts = line.split(/\s+/);
-  if (parts.length !== 2) {
-    return '自定義模式每行必須是「時間段 語言碼」，例如：0-3 ja';
+  const match = line.match(new RegExp(`^(.+?)\\s+${LANGUAGE_CODE_PATTERN}$`, 'i'));
+  if (!match) {
+    return '自定義模式每行必須是「時間段 語言碼」，例如：0-3 ja 或 00:00:00,000 --> 00:00:03,000 ja';
   }
 
-  const [rangeText, language] = parts;
+  const rangeText = match[1].trim();
+  const language = match[2].toLowerCase();
   if (!ALLOWED_LANGUAGES.has(language.toLowerCase())) {
     return '語言碼只支援：auto、mixed、ko、ja、vi、zh、en';
   }
 
-  return validateTimeRange(rangeText, '自定義模式的時間段格式錯誤，例如：0-3 ja');
+  return validateTimeRange(rangeText, '自定義模式的時間段格式錯誤，例如：0-3 ja 或 00:00:00,000 --> 00:00:03,000 ja');
 }
 
 function validateTimeRange(rangeText, errorMessage) {
-  const match = rangeText.match(/^(.+?)(?:-|~|到|至)(.+)$/);
-  if (!match) return errorMessage;
+  const parts = splitTimeRangeForValidation(rangeText);
+  if (!parts) return errorMessage;
 
-  const start = parseTimeValueForValidation(match[1].trim());
-  const end = parseTimeValueForValidation(match[2].trim());
+  const start = parseTimeValueForValidation(parts[0]);
+  const end = parseTimeValueForValidation(parts[1]);
   if (start === null || end === null) return errorMessage;
   if (end <= start) return '時間段的結束時間必須大於開始時間。';
 
   return '';
+}
+
+function splitTimeRangeForValidation(rangeText) {
+  const trimmed = rangeText.trim();
+  if (!trimmed) return null;
+
+  const arrowParts = trimmed.split(/\s*-->\s*/);
+  if (arrowParts.length === 2 && arrowParts[0].trim() && arrowParts[1].trim()) {
+    return [arrowParts[0].trim(), arrowParts[1].trim()];
+  }
+  if (arrowParts.length > 2) return null;
+
+  let match = trimmed.match(/^(.+?)\s*(?:~|到|至)\s*(.+)$/);
+  if (match) return [match[1].trim(), match[2].trim()];
+
+  match = trimmed.match(/^(.+?)\s*-\s*(.+)$/);
+  if (match) return [match[1].trim(), match[2].trim()];
+
+  return null;
 }
 
 function parseTimeValueForValidation(value) {

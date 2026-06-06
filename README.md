@@ -139,6 +139,7 @@ docker compose down
 ```text
 0-8
 01:12-01:20
+00:00:00,000 --> 00:00:03,000
 ```
 
 `mixed_ranges_custom=true` 時，每行必須輸入 `時間段 語言碼`：
@@ -146,7 +147,7 @@ docker compose down
 ```text
 0-3 ja
 12-18 mixed
-01:20-01:28 en
+00:00:00,000 --> 00:00:03,000 ja
 ```
 
 如果 `mixed_ranges_custom=true` 且 `mixed_ranges_default_language=ja`，每行只需要輸入時間段，後端會自動把這些例外區間當成日文處理：
@@ -154,8 +155,10 @@ docker compose down
 ```text
 0-3
 12-18
-01:20-01:28
+00:00:00,000 --> 00:00:03,000
 ```
+
+時間格式支援秒數、`mm:ss`、`hh:mm:ss`、`hh:mm:ss,mmm`，也支援標準 SRT 箭頭格式，例如 `00:00:00,000 --> 00:00:03,000`。
 
 語言碼支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。這適合音檔主體是韓文，但開頭幾秒是日文標題，或某些片段已知是英文 / 中文 / 越文的情況。
 
