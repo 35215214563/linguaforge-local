@@ -158,6 +158,7 @@ async def transcribe(
     language: str = Form("auto"),
     save_output: bool = Form(True),
     mixed_ranges: str = Form(""),
+    mixed_ranges_custom: bool = Form(False),
 ) -> Response:
     check_rate_limit(get_client_key(request))
 
@@ -167,7 +168,7 @@ async def transcribe(
             status_code=400,
             detail="language must be one of: auto, mixed, ko, ja, vi, zh, en",
         )
-    parsed_mixed_ranges = parse_mixed_ranges(mixed_ranges)
+    parsed_mixed_ranges = parse_mixed_ranges(mixed_ranges, mixed_ranges_custom)
 
     temp_path: Path | None = None
     transcription_slot_acquired = False
@@ -264,6 +265,7 @@ async def create_transcription_job(
     language: str = Form("auto"),
     save_output: bool = Form(True),
     mixed_ranges: str = Form(""),
+    mixed_ranges_custom: bool = Form(False),
 ) -> dict[str, str]:
     cleanup_old_jobs()
     check_rate_limit(get_client_key(request))
@@ -274,7 +276,7 @@ async def create_transcription_job(
             status_code=400,
             detail="language must be one of: auto, mixed, ko, ja, vi, zh, en",
         )
-    parsed_mixed_ranges = parse_mixed_ranges(mixed_ranges)
+    parsed_mixed_ranges = parse_mixed_ranges(mixed_ranges, mixed_ranges_custom)
 
     temp_path: Path | None = None
     transcription_slot_acquired = False
@@ -471,31 +473,73 @@ def fetch_remote_model_revision(repo_id: str, revision: str = "main") -> str:
     return remote_revision
 
 
-def parse_mixed_ranges(raw_ranges: str) -> list[tuple[float, float]]:
+def parse_mixed_ranges(raw_ranges: str, custom_languages: bool = False) -> list[tuple[float, float, str]]:
     if not raw_ranges.strip():
         return []
 
-    ranges: list[tuple[float, float]] = []
-    separators = re.split(r"[\n,;]+", raw_ranges)
-    for raw_range in separators:
+    ranges: list[tuple[float, float, str]] = []
+    separators = raw_ranges.splitlines() if custom_languages else re.split(r"[\n,;]+", raw_ranges)
+    for line_number, raw_range in enumerate(separators, start=1):
         item = raw_range.strip()
         if not item:
             continue
 
-        match = re.match(r"^(.+?)\s*(?:-|~|到|至)\s*(.+)$", item)
-        if not match:
-            raise HTTPException(
-                status_code=400,
-                detail="mixed_ranges format must look like 12-18 or 00:01:12-00:01:20",
-            )
+        if custom_languages:
+            parts = re.split(r"\s+", item)
+            if len(parts) != 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"mixed_ranges line {line_number} must look like: "
+                        "0-3 ja, 12-18 mixed, or 01:20-01:28 en"
+                    ),
+                )
+            range_text, range_language = parts[0], parts[1].lower()
+            if range_language not in ALLOWED_LANGUAGES:
+                raise HTTPException(
+                    status_code=400,
+                    detail="mixed_ranges language must be one of: auto, mixed, ko, ja, vi, zh, en",
+                )
+        else:
+            range_text = item
+            range_language = "mixed"
+            if re.search(r"\s+(auto|mixed|ko|ja|vi|zh|en)$", range_text, flags=re.IGNORECASE):
+                raise HTTPException(
+                    status_code=400,
+                    detail="勾選自定義每段語言時才可以輸入語言碼，例如：0-3 ja",
+                )
 
-        start = parse_time_value(match.group(1).strip())
-        end = parse_time_value(match.group(2).strip())
+        start, end = parse_range_value(range_text)
+
         if end <= start:
             raise HTTPException(status_code=400, detail="mixed_ranges end time must be after start time")
-        ranges.append((start, end))
+        ranges.append((start, end, range_language))
+
+    ensure_ranges_do_not_overlap(ranges)
 
     return ranges
+
+
+def parse_range_value(raw_range: str) -> tuple[float, float]:
+    match = re.match(r"^(.+?)\s*(?:-|~|到|至)\s*(.+)$", raw_range.strip())
+    if not match:
+        raise HTTPException(
+            status_code=400,
+            detail="mixed_ranges format must look like 12-18 or 00:01:12-00:01:20",
+        )
+
+    start = parse_time_value(match.group(1).strip())
+    end = parse_time_value(match.group(2).strip())
+    return start, end
+
+
+def ensure_ranges_do_not_overlap(ranges: list[tuple[float, float, str]]) -> None:
+    sorted_ranges = sorted(ranges, key=lambda item: item[0])
+    previous_end: float | None = None
+    for start, end, _language in sorted_ranges:
+        if previous_end is not None and start < previous_end:
+            raise HTTPException(status_code=400, detail="mixed_ranges must not overlap")
+        previous_end = end
 
 
 def parse_time_value(raw_value: str) -> float:

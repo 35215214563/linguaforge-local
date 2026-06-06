@@ -220,8 +220,25 @@ audio {
   height: 1rem;
 }
 
-.range-toggle-row {
+.range-toggle-group {
+  display: flex;
   align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.range-toggle-group .save-row {
+  margin-top: 1rem;
+}
+
+.range-custom-row {
+  flex-shrink: 0;
+}
+
+.range-custom-row input:disabled,
+.range-custom-row input:disabled + span {
+  opacity: 0.45;
 }
 
 .range-panel {
@@ -552,6 +569,10 @@ audio {
 
   .model-status-header {
     grid-template-columns: 1fr;
+  }
+
+  .range-toggle-group {
+    display: block;
   }
 
   body {

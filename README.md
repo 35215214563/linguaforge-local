@@ -129,7 +129,25 @@ docker compose down
 - `file`: 音訊檔案
 - `language`: `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`，預設 `auto`
 - `save_output`: `true` 或 `false`，預設 `true`
-- `mixed_ranges`: 可選。指定少數混合語言區間，例如 `0-8` 或 `01:12-01:20`，每行、逗號或分號分隔。這些區間會用 mixed 逐段偵測，其餘時間使用 `language` 指定的目標語言。建議搭配 `ko`, `ja`, `vi`, `zh`, `en` 這類明確目標語言使用；如果整條音檔都需要多語偵測，才使用 `language=mixed`。
+- `mixed_ranges`: 可選。指定少數混合 / 例外語言區間，其餘時間使用 `language` 指定的主要語言。
+- `mixed_ranges_custom`: `true` 或 `false`，預設 `false`。
+
+`mixed_ranges_custom=false` 時，每行只輸入時間段，該區間會用 `mixed` 逐段偵測：
+
+```text
+0-8
+01:12-01:20
+```
+
+`mixed_ranges_custom=true` 時，每行必須輸入 `時間段 語言碼`：
+
+```text
+0-3 ja
+12-18 mixed
+01:20-01:28 en
+```
+
+語言碼支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。這適合音檔主體是韓文，但開頭幾秒是日文標題，或某些片段已知是英文 / 中文 / 越文的情況。
 
 成功時回傳 `text/plain; charset=utf-8` 的 SRT 字幕文字。若 `save_output=true`，後端會把同名 `.srt` 寫入 `output/`。
 

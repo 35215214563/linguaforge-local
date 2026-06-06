@@ -50,8 +50,10 @@ $('copyBtn').addEventListener('click', copySRT);
 $('clearOutputBtn').addEventListener('click', clearOutputFolder);
 $('checkModelBtn').addEventListener('click', checkModelStatus);
 $('useMixedRanges').addEventListener('change', event => {
-  $('mixedRangePanel').classList.toggle('open', event.target.checked);
+  updateRangeControls(event.target.checked);
 });
+$('customRangeLanguages').addEventListener('change', updateRangeHelp);
+updateRangeControls($('useMixedRanges').checked);
 
 document.querySelectorAll('[data-language]').forEach(option => {
   option.addEventListener('click', () => selectLanguage(option.dataset.language));
@@ -223,11 +225,11 @@ async function startTranscription() {
     return;
   }
 
-  const button = $('transcribeBtn');
   const saveOutput = $('saveOutput').checked;
-  const mixedRanges = getMixedRangesInput();
-  if (mixedRanges && currentLanguage === 'mixed') {
-    setStatus('指定混合語言時間段時，請選擇主要目標語言，不要選 Mixed multilingual。', 'error');
+  const rangeSettings = getRangeSettings();
+  const rangeError = validateRangeSettings(rangeSettings);
+  if (rangeError) {
+    setStatus(rangeError, 'error');
     return;
   }
 
@@ -238,7 +240,14 @@ async function startTranscription() {
   setStatus('正在上傳音訊到 FastAPI 後端...', 'active');
 
   try {
-    const srt = await transcribeWithFastAPI(audioFile, currentLanguage, saveOutput, mixedRanges, abortController.signal);
+    const srt = await transcribeWithFastAPI(
+      audioFile,
+      currentLanguage,
+      saveOutput,
+      rangeSettings.text,
+      rangeSettings.custom,
+      abortController.signal,
+    );
 
     srtContent = srt;
     $('srtBox').textContent = srtContent;
@@ -266,17 +275,114 @@ function cancelTranscription() {
   }
 }
 
-function getMixedRangesInput() {
-  if (!$('useMixedRanges').checked) return '';
-  return $('mixedRanges').value.trim();
+function updateRangeControls(isEnabled) {
+  $('mixedRangePanel').classList.toggle('open', isEnabled);
+  $('customRangeLanguages').disabled = !isEnabled;
+  if (!isEnabled) {
+    $('customRangeLanguages').checked = false;
+  }
+  updateRangeHelp();
 }
 
-async function transcribeWithFastAPI(audioFile, language, saveOutput, mixedRanges, signal) {
+function updateRangeHelp() {
+  const isCustom = $('customRangeLanguages').checked;
+  $('mixedRanges').placeholder = isCustom
+    ? '例如：0-3 ja\n12-18 mixed\n01:20-01:28 en'
+    : '例如：0-8\n01:12-01:20';
+  $('rangeHint').textContent = isCustom
+    ? '自定義模式：每行必須是「時間段 語言碼」，例如 0-3 ja。語言碼支援 auto、mixed、ko、ja、vi、zh、en。'
+    : '未勾自定義：每行只輸入時間段，例如 0-8；這些區間會用 mixed 逐段偵測。';
+}
+
+function getRangeSettings() {
+  if (!$('useMixedRanges').checked) {
+    return { text: '', custom: false };
+  }
+
+  return {
+    text: $('mixedRanges').value.trim(),
+    custom: $('customRangeLanguages').checked,
+  };
+}
+
+function validateRangeSettings(rangeSettings) {
+  if (!rangeSettings.text) {
+    return '請輸入例外時間段，或取消勾選「指定混合 / 例外語言時間段」。';
+  }
+
+  const lines = rangeSettings.text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    const error = rangeSettings.custom
+      ? validateCustomRangeLine(line)
+      : validateSimpleRangeLine(line);
+    if (error) return error;
+  }
+
+  return '';
+}
+
+function validateSimpleRangeLine(line) {
+  if (/\s+(auto|mixed|ko|ja|vi|zh|en)$/i.test(line)) {
+    return '如果要輸入語言碼，請先勾選「自定義每段語言」。格式：0-3 ja';
+  }
+
+  return validateTimeRange(line, '未勾自定義時，每行請只輸入時間段，例如：0-3');
+}
+
+function validateCustomRangeLine(line) {
+  const parts = line.split(/\s+/);
+  if (parts.length !== 2) {
+    return '自定義模式每行必須是「時間段 語言碼」，例如：0-3 ja';
+  }
+
+  const [rangeText, language] = parts;
+  if (!ALLOWED_LANGUAGES.has(language.toLowerCase())) {
+    return '語言碼只支援：auto、mixed、ko、ja、vi、zh、en';
+  }
+
+  return validateTimeRange(rangeText, '自定義模式的時間段格式錯誤，例如：0-3 ja');
+}
+
+function validateTimeRange(rangeText, errorMessage) {
+  const match = rangeText.match(/^(.+?)(?:-|~|到|至)(.+)$/);
+  if (!match) return errorMessage;
+
+  const start = parseTimeValueForValidation(match[1].trim());
+  const end = parseTimeValueForValidation(match[2].trim());
+  if (start === null || end === null) return errorMessage;
+  if (end <= start) return '時間段的結束時間必須大於開始時間。';
+
+  return '';
+}
+
+function parseTimeValueForValidation(value) {
+  const normalized = value.replace(',', '.');
+  if (!normalized) return null;
+
+  if (!normalized.includes(':')) {
+    const seconds = Number(normalized);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+  }
+
+  const parts = normalized.split(':').map(part => Number(part));
+  if (![2, 3].includes(parts.length) || parts.some(part => !Number.isFinite(part) || part < 0)) {
+    return null;
+  }
+
+  if (parts.length === 2) {
+    return (parts[0] * 60) + parts[1];
+  }
+
+  return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+}
+
+async function transcribeWithFastAPI(audioFile, language, saveOutput, mixedRanges, mixedRangesCustom, signal) {
   const formData = new FormData();
   formData.append('file', audioFile, audioFile.name);
   formData.append('language', language);
   formData.append('save_output', saveOutput ? 'true' : 'false');
   formData.append('mixed_ranges', mixedRanges);
+  formData.append('mixed_ranges_custom', mixedRangesCustom ? 'true' : 'false');
 
   setIndeterminateProgress();
   setStatus('正在上傳音訊並建立後端轉錄工作...', 'active');

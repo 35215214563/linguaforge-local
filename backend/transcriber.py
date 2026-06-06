@@ -31,9 +31,9 @@ class SRTTranscriber:
         self,
         audio_path: str,
         language: str = "auto",
-        mixed_ranges: list[tuple[float, float]] | None = None,
+        mixed_ranges: list[tuple[float, float, str]] | None = None,
     ) -> str:
-        if language == "mixed":
+        if language == "mixed" and not mixed_ranges:
             return self._transcribe_mixed_to_srt(audio_path)
 
         if mixed_ranges:
@@ -63,7 +63,7 @@ class SRTTranscriber:
         self,
         audio_path: str,
         language: str,
-        mixed_ranges: list[tuple[float, float]],
+        mixed_ranges: list[tuple[float, float, str]],
     ) -> str:
         audio = decode_audio(audio_path, sampling_rate=SAMPLE_RATE)
         total_duration = len(audio) / SAMPLE_RATE
@@ -74,9 +74,9 @@ class SRTTranscriber:
         blocks: list[str] = []
         cursor = 0.0
 
-        for start, end in ranges:
+        for start, end, range_language in ranges:
             if start > cursor:
-                self._append_target_audio_to_blocks(
+                self._append_language_audio_to_blocks(
                     blocks,
                     audio,
                     start=cursor,
@@ -84,15 +84,11 @@ class SRTTranscriber:
                     language=language,
                 )
 
-            self._append_mixed_audio_to_blocks(
-                blocks,
-                slice_audio(audio, start, end),
-                offset=start,
-            )
+            self._append_language_audio_to_blocks(blocks, audio, start=start, end=end, language=range_language)
             cursor = end
 
         if cursor < total_duration:
-            self._append_target_audio_to_blocks(
+            self._append_language_audio_to_blocks(
                 blocks,
                 audio,
                 start=cursor,
@@ -101,6 +97,30 @@ class SRTTranscriber:
             )
 
         return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+    def _append_language_audio_to_blocks(
+        self,
+        blocks: list[str],
+        audio,
+        start: float,
+        end: float,
+        language: str,
+    ) -> None:
+        if language == "mixed":
+            self._append_mixed_audio_to_blocks(
+                blocks,
+                slice_audio(audio, start, end),
+                offset=start,
+            )
+            return
+
+        self._append_target_audio_to_blocks(
+            blocks,
+            audio,
+            start=start,
+            end=end,
+            language=language,
+        )
 
     def _append_target_audio_to_blocks(
         self,
@@ -225,22 +245,22 @@ def slice_audio(audio, start: float, end: float):
     return audio[start_sample:end_sample]
 
 
-def normalize_ranges(ranges: list[tuple[float, float]], total_duration: float) -> list[tuple[float, float]]:
-    normalized: list[tuple[float, float]] = []
-    for start, end in ranges:
+def normalize_ranges(ranges: list[tuple[float, float, str]], total_duration: float) -> list[tuple[float, float, str]]:
+    normalized: list[tuple[float, float, str]] = []
+    for start, end, language in ranges:
         start = max(0.0, min(float(start), total_duration))
         end = max(0.0, min(float(end), total_duration))
         if end - start >= MIN_MIXED_SEGMENT_SECONDS:
-            normalized.append((start, end))
+            normalized.append((start, end, language))
 
     normalized.sort(key=lambda item: item[0])
-    merged: list[tuple[float, float]] = []
-    for start, end in normalized:
-        if not merged or start > merged[-1][1]:
-            merged.append((start, end))
+    merged: list[tuple[float, float, str]] = []
+    for start, end, language in normalized:
+        if not merged or start > merged[-1][1] or language != merged[-1][2]:
+            merged.append((start, end, language))
         else:
-            prev_start, prev_end = merged[-1]
-            merged[-1] = (prev_start, max(prev_end, end))
+            prev_start, prev_end, prev_language = merged[-1]
+            merged[-1] = (prev_start, max(prev_end, end), prev_language)
 
     return merged
 
