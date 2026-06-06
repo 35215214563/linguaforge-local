@@ -159,6 +159,7 @@ async def transcribe(
     save_output: bool = Form(True),
     mixed_ranges: str = Form(""),
     mixed_ranges_custom: bool = Form(False),
+    mixed_ranges_default_language: str = Form(""),
 ) -> Response:
     check_rate_limit(get_client_key(request))
 
@@ -168,7 +169,11 @@ async def transcribe(
             status_code=400,
             detail="language must be one of: auto, mixed, ko, ja, vi, zh, en",
         )
-    parsed_mixed_ranges = parse_mixed_ranges(mixed_ranges, mixed_ranges_custom)
+    parsed_mixed_ranges = parse_mixed_ranges(
+        mixed_ranges,
+        mixed_ranges_custom,
+        mixed_ranges_default_language,
+    )
 
     temp_path: Path | None = None
     transcription_slot_acquired = False
@@ -266,6 +271,7 @@ async def create_transcription_job(
     save_output: bool = Form(True),
     mixed_ranges: str = Form(""),
     mixed_ranges_custom: bool = Form(False),
+    mixed_ranges_default_language: str = Form(""),
 ) -> dict[str, str]:
     cleanup_old_jobs()
     check_rate_limit(get_client_key(request))
@@ -276,7 +282,11 @@ async def create_transcription_job(
             status_code=400,
             detail="language must be one of: auto, mixed, ko, ja, vi, zh, en",
         )
-    parsed_mixed_ranges = parse_mixed_ranges(mixed_ranges, mixed_ranges_custom)
+    parsed_mixed_ranges = parse_mixed_ranges(
+        mixed_ranges,
+        mixed_ranges_custom,
+        mixed_ranges_default_language,
+    )
 
     temp_path: Path | None = None
     transcription_slot_acquired = False
@@ -473,7 +483,15 @@ def fetch_remote_model_revision(repo_id: str, revision: str = "main") -> str:
     return remote_revision
 
 
-def parse_mixed_ranges(raw_ranges: str, custom_languages: bool = False) -> list[tuple[float, float, str]]:
+def parse_mixed_ranges(
+    raw_ranges: str,
+    custom_languages: bool = False,
+    default_language: str = "",
+) -> list[tuple[float, float, str]]:
+    normalized_default_language = normalize_mixed_ranges_default_language(
+        default_language,
+        custom_languages,
+    )
     if not raw_ranges.strip():
         return []
 
@@ -485,21 +503,30 @@ def parse_mixed_ranges(raw_ranges: str, custom_languages: bool = False) -> list[
             continue
 
         if custom_languages:
-            parts = re.split(r"\s+", item)
-            if len(parts) != 2:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"mixed_ranges line {line_number} must look like: "
-                        "0-3 ja, 12-18 mixed, or 01:20-01:28 en"
-                    ),
-                )
-            range_text, range_language = parts[0], parts[1].lower()
-            if range_language not in ALLOWED_LANGUAGES:
-                raise HTTPException(
-                    status_code=400,
-                    detail="mixed_ranges language must be one of: auto, mixed, ko, ja, vi, zh, en",
-                )
+            if normalized_default_language:
+                if re.search(r"\s+(auto|mixed|ko|ja|vi|zh|en)$", item, flags=re.IGNORECASE):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="已選預設例外語言時，每行只需要輸入時間段，例如：0-3",
+                    )
+                range_text = item
+                range_language = normalized_default_language
+            else:
+                parts = re.split(r"\s+", item)
+                if len(parts) != 2:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"mixed_ranges line {line_number} must look like: "
+                            "0-3 ja, 12-18 mixed, or 01:20-01:28 en"
+                        ),
+                    )
+                range_text, range_language = parts[0], parts[1].lower()
+                if range_language not in ALLOWED_LANGUAGES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="mixed_ranges language must be one of: auto, mixed, ko, ja, vi, zh, en",
+                    )
         else:
             range_text = item
             range_language = "mixed"
@@ -518,6 +545,26 @@ def parse_mixed_ranges(raw_ranges: str, custom_languages: bool = False) -> list[
     ensure_ranges_do_not_overlap(ranges)
 
     return ranges
+
+
+def normalize_mixed_ranges_default_language(default_language: str, custom_languages: bool) -> str:
+    normalized_language = default_language.strip().lower()
+    if not normalized_language:
+        return ""
+
+    if normalized_language not in ALLOWED_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail="mixed_ranges_default_language must be one of: auto, mixed, ko, ja, vi, zh, en",
+        )
+
+    if not custom_languages:
+        raise HTTPException(
+            status_code=400,
+            detail="mixed_ranges_default_language can only be used when mixed_ranges_custom=true",
+        )
+
+    return normalized_language
 
 
 def parse_range_value(raw_range: str) -> tuple[float, float]:

@@ -276,6 +276,62 @@ audio {
   margin-top: 0.45rem;
 }
 
+.default-language-panel {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: rgba(0,0,0,0.14);
+}
+
+.range-default-title {
+  color: var(--muted);
+  font-size: 0.6rem;
+  line-height: 1.5;
+  margin-bottom: 0.55rem;
+}
+
+.exception-language-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.exception-language-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--muted);
+  font-size: 0.58rem;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.exception-language-opt input[type=radio] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.exception-language-opt:hover {
+  border-color: rgba(95,191,191,0.35);
+  color: var(--text);
+}
+
+.exception-language-opt.selected,
+.exception-language-opt:has(input[type=radio]:checked) {
+  border-color: var(--teal);
+  background: rgba(95,191,191,0.08);
+  color: var(--teal);
+}
+
 .settings-actions {
   display: flex;
   justify-content: flex-end;
@@ -573,6 +629,10 @@ audio {
 
   .range-toggle-group {
     display: block;
+  }
+
+  .exception-language-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   body {

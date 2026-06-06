@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LinguaForge Local - Multilingual SRT Generator</title>
-<link rel="stylesheet" href="css/style.css?v=20260607-0010">
+<link rel="stylesheet" href="css/style.css?v=20260607-0025">
 </head>
 <body>
 <div class="wrap">
@@ -103,6 +103,44 @@
       </label>
     </div>
     <div class="range-panel" id="mixedRangePanel">
+      <div class="default-language-panel" id="defaultExceptionLanguagePanel" hidden>
+        <div class="range-default-title">預設例外語言（可選，只能選一個）</div>
+        <div class="exception-language-grid" role="radiogroup" aria-label="預設例外語言">
+          <label class="exception-language-opt selected">
+            <input type="radio" name="defaultExceptionLanguage" value="" checked>
+            <span>每行指定</span>
+          </label>
+          <label class="exception-language-opt">
+            <input type="radio" name="defaultExceptionLanguage" value="ja">
+            <span>Japanese</span>
+          </label>
+          <label class="exception-language-opt">
+            <input type="radio" name="defaultExceptionLanguage" value="ko">
+            <span>Korean</span>
+          </label>
+          <label class="exception-language-opt">
+            <input type="radio" name="defaultExceptionLanguage" value="en">
+            <span>English</span>
+          </label>
+          <label class="exception-language-opt">
+            <input type="radio" name="defaultExceptionLanguage" value="zh">
+            <span>Chinese</span>
+          </label>
+          <label class="exception-language-opt">
+            <input type="radio" name="defaultExceptionLanguage" value="vi">
+            <span>Vietnamese</span>
+          </label>
+          <label class="exception-language-opt">
+            <input type="radio" name="defaultExceptionLanguage" value="mixed">
+            <span>Mixed</span>
+          </label>
+          <label class="exception-language-opt">
+            <input type="radio" name="defaultExceptionLanguage" value="auto">
+            <span>Auto</span>
+          </label>
+        </div>
+        <div class="range-hint">選了預設語言後，下面每行只需要輸入時間段；保持「每行指定」時，每行要寫「時間段 語言碼」。</div>
+      </div>
       <textarea
         id="mixedRanges"
         rows="3"
@@ -150,7 +188,8 @@
     ※ 一般單語音檔請直接選目標語言，不需要勾選「指定混合 / 例外語言時間段」。這樣通常最穩、也最快。<br>
     ※ 如果音檔大部分是同一種語言，但某幾秒混入其他語言，請選主要語言後再勾選「指定混合 / 例外語言時間段」。<br>
     ※ 未勾「自定義每段語言」時，每行只輸入時間段，例如 <strong>0-8</strong>、<strong>01:12-01:20</strong>；這些區間會用 mixed 逐段偵測。<br>
-    ※ 勾選「自定義每段語言」時，每行必須輸入 <strong>時間段 語言碼</strong>，例如 <strong>0-3 ja</strong>、<strong>12-18 mixed</strong>、<strong>01:20-01:28 en</strong>。<br>
+    ※ 勾選「自定義每段語言」且預設例外語言保持「每行指定」時，每行必須輸入 <strong>時間段 語言碼</strong>，例如 <strong>0-3 ja</strong>、<strong>12-18 mixed</strong>、<strong>01:20-01:28 en</strong>。<br>
+    ※ 如果所有例外時間段都是同一種語言，請在預設例外語言裡只選一個語言，例如 Japanese；下面就只需要輸入 <strong>0-3</strong>、<strong>12-18</strong>，不用重複寫 ja。<br>
     ※ 時間格式支援秒數、mm:ss、hh:mm:ss；語言碼支援 auto、mixed、ko、ja、vi、zh、en。<br>
     ※ 如果整條音檔都頻繁混合多種語言，才選 Mixed multilingual；它會先用 VAD 切段，再逐段偵測語言與轉錄。<br>
     ※ 「檢查模型版本」只會比較本地 cache 與 Hugging Face 遠端版本，不會下載或更新模型。<br>
@@ -159,6 +198,6 @@
   </div>
 </div>
 
-<script src="js/app.js?v=20260607-0010"></script>
+<script src="js/app.js?v=20260607-0025"></script>
 </body>
 </html>

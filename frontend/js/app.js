@@ -3,6 +3,16 @@ const JOB_API_URL = `${API_BASE_URL}/transcribe-job`;
 const CLEAR_OUTPUT_URL = `${API_BASE_URL}/output`;
 const MODEL_STATUS_URL = `${API_BASE_URL}/model-status`;
 const ALLOWED_LANGUAGES = new Set(['auto', 'mixed', 'ko', 'ja', 'vi', 'zh', 'en']);
+const LANGUAGE_LABELS = {
+  auto: 'Auto',
+  mixed: 'Mixed',
+  ko: 'Korean',
+  ja: 'Japanese',
+  vi: 'Vietnamese',
+  zh: 'Chinese',
+  en: 'English',
+};
+const LANGUAGE_CODE_PATTERN = '(auto|mixed|ko|ja|vi|zh|en)';
 const ALLOWED_AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'mp4', 'oga', 'ogg', 'opus', 'wav', 'webm']);
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
@@ -52,7 +62,15 @@ $('checkModelBtn').addEventListener('click', checkModelStatus);
 $('useMixedRanges').addEventListener('change', event => {
   updateRangeControls(event.target.checked);
 });
-$('customRangeLanguages').addEventListener('change', updateRangeHelp);
+$('customRangeLanguages').addEventListener('change', () => {
+  updateRangeControls($('useMixedRanges').checked);
+});
+document.querySelectorAll('input[name="defaultExceptionLanguage"]').forEach(input => {
+  input.addEventListener('change', () => {
+    updateDefaultExceptionLanguageOptions();
+    updateRangeHelp();
+  });
+});
 updateRangeControls($('useMixedRanges').checked);
 
 document.querySelectorAll('[data-language]').forEach(option => {
@@ -246,6 +264,7 @@ async function startTranscription() {
       saveOutput,
       rangeSettings.text,
       rangeSettings.custom,
+      rangeSettings.defaultLanguage,
       abortController.signal,
     );
 
@@ -281,27 +300,67 @@ function updateRangeControls(isEnabled) {
   if (!isEnabled) {
     $('customRangeLanguages').checked = false;
   }
+
+  const isCustom = isEnabled && $('customRangeLanguages').checked;
+  $('defaultExceptionLanguagePanel').hidden = !isCustom;
+  if (!isCustom) {
+    resetDefaultExceptionLanguage();
+  }
+
+  updateDefaultExceptionLanguageOptions();
   updateRangeHelp();
 }
 
 function updateRangeHelp() {
-  const isCustom = $('customRangeLanguages').checked;
-  $('mixedRanges').placeholder = isCustom
-    ? '例如：0-3 ja\n12-18 mixed\n01:20-01:28 en'
-    : '例如：0-8\n01:12-01:20';
-  $('rangeHint').textContent = isCustom
-    ? '自定義模式：每行必須是「時間段 語言碼」，例如 0-3 ja。語言碼支援 auto、mixed、ko、ja、vi、zh、en。'
-    : '未勾自定義：每行只輸入時間段，例如 0-8；這些區間會用 mixed 逐段偵測。';
+  const isCustom = $('useMixedRanges').checked && $('customRangeLanguages').checked;
+  const defaultLanguage = getDefaultExceptionLanguage();
+
+  if (!isCustom) {
+    $('mixedRanges').placeholder = '例如：0-8\n01:12-01:20';
+    $('rangeHint').textContent = '未勾自定義：每行只輸入時間段，例如 0-8；這些區間會用 mixed 逐段偵測。';
+    return;
+  }
+
+  if (defaultLanguage) {
+    $('mixedRanges').placeholder = '例如：0-3\n12-18\n01:20-01:28';
+    $('rangeHint').textContent = `已選預設例外語言：${LANGUAGE_LABELS[defaultLanguage]}。每行只輸入時間段，後端會自動套用 ${defaultLanguage}。`;
+    return;
+  }
+
+  $('mixedRanges').placeholder = '例如：0-3 ja\n12-18 mixed\n01:20-01:28 en';
+  $('rangeHint').textContent = '自定義模式：每行必須是「時間段 語言碼」，例如 0-3 ja。語言碼支援 auto、mixed、ko、ja、vi、zh、en。';
+}
+
+function resetDefaultExceptionLanguage() {
+  document.querySelectorAll('input[name="defaultExceptionLanguage"]').forEach(input => {
+    input.checked = input.value === '';
+  });
+}
+
+function updateDefaultExceptionLanguageOptions() {
+  document.querySelectorAll('input[name="defaultExceptionLanguage"]').forEach(input => {
+    input.closest('.exception-language-opt')?.classList.toggle('selected', input.checked);
+  });
+}
+
+function getDefaultExceptionLanguage() {
+  if (!$('useMixedRanges').checked || !$('customRangeLanguages').checked) {
+    return '';
+  }
+
+  const selected = document.querySelector('input[name="defaultExceptionLanguage"]:checked');
+  return selected?.value || '';
 }
 
 function getRangeSettings() {
   if (!$('useMixedRanges').checked) {
-    return { text: '', custom: false };
+    return { text: '', custom: false, defaultLanguage: '' };
   }
 
   return {
     text: $('mixedRanges').value.trim(),
     custom: $('customRangeLanguages').checked,
+    defaultLanguage: getDefaultExceptionLanguage(),
   };
 }
 
@@ -312,9 +371,14 @@ function validateRangeSettings(rangeSettings) {
 
   const lines = rangeSettings.text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   for (const line of lines) {
-    const error = rangeSettings.custom
-      ? validateCustomRangeLine(line)
-      : validateSimpleRangeLine(line);
+    let error = '';
+    if (rangeSettings.custom && rangeSettings.defaultLanguage) {
+      error = validateDefaultLanguageRangeLine(line);
+    } else if (rangeSettings.custom) {
+      error = validateCustomRangeLine(line);
+    } else {
+      error = validateSimpleRangeLine(line);
+    }
     if (error) return error;
   }
 
@@ -322,11 +386,19 @@ function validateRangeSettings(rangeSettings) {
 }
 
 function validateSimpleRangeLine(line) {
-  if (/\s+(auto|mixed|ko|ja|vi|zh|en)$/i.test(line)) {
+  if (new RegExp(`\\s+${LANGUAGE_CODE_PATTERN}$`, 'i').test(line)) {
     return '如果要輸入語言碼，請先勾選「自定義每段語言」。格式：0-3 ja';
   }
 
   return validateTimeRange(line, '未勾自定義時，每行請只輸入時間段，例如：0-3');
+}
+
+function validateDefaultLanguageRangeLine(line) {
+  if (new RegExp(`\\s+${LANGUAGE_CODE_PATTERN}$`, 'i').test(line)) {
+    return '已選預設例外語言時，每行只需要輸入時間段，例如：0-3';
+  }
+
+  return validateTimeRange(line, '已選預設例外語言時，每行請只輸入時間段，例如：0-3');
 }
 
 function validateCustomRangeLine(line) {
@@ -376,13 +448,14 @@ function parseTimeValueForValidation(value) {
   return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
 }
 
-async function transcribeWithFastAPI(audioFile, language, saveOutput, mixedRanges, mixedRangesCustom, signal) {
+async function transcribeWithFastAPI(audioFile, language, saveOutput, mixedRanges, mixedRangesCustom, mixedRangesDefaultLanguage, signal) {
   const formData = new FormData();
   formData.append('file', audioFile, audioFile.name);
   formData.append('language', language);
   formData.append('save_output', saveOutput ? 'true' : 'false');
   formData.append('mixed_ranges', mixedRanges);
   formData.append('mixed_ranges_custom', mixedRangesCustom ? 'true' : 'false');
+  formData.append('mixed_ranges_default_language', mixedRangesDefaultLanguage || '');
 
   setIndeterminateProgress();
   setStatus('正在上傳音訊並建立後端轉錄工作...', 'active');

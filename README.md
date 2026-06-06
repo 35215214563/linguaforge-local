@@ -131,6 +131,7 @@ docker compose down
 - `save_output`: `true` 或 `false`，預設 `true`
 - `mixed_ranges`: 可選。指定少數混合 / 例外語言區間，其餘時間使用 `language` 指定的主要語言。
 - `mixed_ranges_custom`: `true` 或 `false`，預設 `false`。
+- `mixed_ranges_default_language`: 可選。只在 `mixed_ranges_custom=true` 時使用，支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。
 
 `mixed_ranges_custom=false` 時，每行只輸入時間段，該區間會用 `mixed` 逐段偵測：
 
@@ -145,6 +146,14 @@ docker compose down
 0-3 ja
 12-18 mixed
 01:20-01:28 en
+```
+
+如果 `mixed_ranges_custom=true` 且 `mixed_ranges_default_language=ja`，每行只需要輸入時間段，後端會自動把這些例外區間當成日文處理：
+
+```text
+0-3
+12-18
+01:20-01:28
 ```
 
 語言碼支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。這適合音檔主體是韓文，但開頭幾秒是日文標題，或某些片段已知是英文 / 中文 / 越文的情況。
