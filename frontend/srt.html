@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Japanese Korean SRT Generator - FastAPI</title>
+<link rel="stylesheet" href="css/style.css?v=20260606-0655">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="badge">Miraa SRT Tool · FastAPI</div>
+  <h1>中英日韓越SRT<em>生成器</em></h1>
+  <div class="sub">// FastAPI + faster-whisper large-v3 · local SRT</div>
+  <div class="model-status-panel model-status-header">
+    <button class="btn btn-secondary" id="checkModelBtn" type="button">檢查模型版本</button>
+    <div class="model-status-text" id="modelStatus">尚未檢查模型版本</div>
+  </div>
+
+  <div class="warn-box" id="fileWarn">
+    你現在似乎是用 file:// 直接打開 HTML。建議用本機伺服器打開：<br>
+    <strong>python3 -m http.server 8000</strong><br>
+    然後開啟 <strong>http://localhost:8000/srt.html</strong>
+  </div>
+
+  <div class="card">
+    <div class="clabel">▸ 01 / Upload Audio</div>
+    <div class="drop-zone" id="dropZone">
+      <input
+        type="file"
+        id="fileInput"
+        accept=".mp3,.m4a,.wav,.flac,.aac,.ogg,.oga,.opus,.webm,.mp4,audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/wav,audio/x-wav,audio/flac,audio/aac,audio/ogg,audio/opus,video/mp4,video/webm"
+      >
+      <div class="drop-icon">♪</div>
+      <div class="drop-title">拖曳音訊檔案至此，或點擊選擇</div>
+      <div class="drop-hint">支援 MP3、M4A、WAV、FLAC...</div>
+      <div class="drop-name" id="dropName"></div>
+    </div>
+    <audio id="audioPreview" controls style="display:none;"></audio>
+  </div>
+
+  <div class="card">
+    <div class="clabel">▸ 02 / Language</div>
+    <div class="language-grid">
+      <label class="model-opt selected" data-language="auto">
+        <input type="radio" name="language" value="auto" checked>
+        <div class="mo-tag tag-rec">Default</div>
+        <div class="mo-name">Auto detect</div>
+        <div class="mo-note">讓 faster-whisper 自動判斷語言</div>
+      </label>
+
+      <label class="model-opt" data-language="mixed">
+        <input type="radio" name="language" value="mixed">
+        <div class="mo-tag tag-rec">Mixed</div>
+        <div class="mo-name">Mixed multilingual</div>
+        <div class="mo-note">適合多語言混合音檔</div>
+      </label>
+
+      <label class="model-opt" data-language="ko">
+        <input type="radio" name="language" value="ko">
+        <div class="mo-tag tag-best">Korean</div>
+        <div class="mo-name">Korean</div>
+        <div class="mo-note">language = ko</div>
+      </label>
+
+      <label class="model-opt" data-language="ja">
+        <input type="radio" name="language" value="ja">
+        <div class="mo-tag tag-best">Japanese</div>
+        <div class="mo-name">Japanese</div>
+        <div class="mo-note">language = ja</div>
+      </label>
+
+      <label class="model-opt" data-language="vi">
+        <input type="radio" name="language" value="vi">
+        <div class="mo-tag tag-best">Vietnamese</div>
+        <div class="mo-name">Vietnamese</div>
+        <div class="mo-note">language = vi</div>
+      </label>
+
+      <label class="model-opt" data-language="zh">
+        <input type="radio" name="language" value="zh">
+        <div class="mo-tag tag-best">Chinese</div>
+        <div class="mo-name">Chinese</div>
+        <div class="mo-note">language = zh</div>
+      </label>
+
+      <label class="model-opt" data-language="en">
+        <input type="radio" name="language" value="en">
+        <div class="mo-tag tag-best">English</div>
+        <div class="mo-name">English</div>
+        <div class="mo-note">language = en</div>
+      </label>
+    </div>
+
+    <label class="save-row range-toggle-row">
+      <input type="checkbox" id="useMixedRanges">
+      <span>指定混合語言時間段：其餘時間使用上方選擇的目標語言</span>
+    </label>
+    <div class="range-panel" id="mixedRangePanel">
+      <textarea
+        id="mixedRanges"
+        rows="3"
+        placeholder="例如：0-8&#10;01:12-01:20"
+        spellcheck="false"
+      ></textarea>
+      <div class="range-hint">每行一段，支援秒數或 mm:ss / hh:mm:ss。這些區間會用 mixed 逐段偵測。</div>
+    </div>
+
+    <label class="save-row">
+      <input type="checkbox" id="saveOutput" checked>
+      <span>save_output=true：後端同時把 .srt 存到 output/</span>
+    </label>
+
+    <div class="settings-actions">
+      <button class="btn btn-danger" id="clearOutputBtn" type="button">清空 output/</button>
+    </div>
+
+    <button class="btn btn-primary" id="transcribeBtn" disabled>
+      ▶ 開始轉錄
+    </button>
+  </div>
+
+  <div class="status-wrap">
+    <div class="status-bar" id="status">請先上傳音訊檔案</div>
+    <div class="prog-track" id="progTrack"><div class="prog-fill" id="progFill"></div></div>
+  </div>
+
+  <div class="output-section" id="outputSection">
+    <div class="card" style="margin-top:1.1rem">
+      <div class="clabel">▸ 03 / SRT Output
+        <span style="color:var(--teal);font-size:0.57rem;">（可直接點選修改）</span>
+      </div>
+      <div class="srt-box" id="srtBox" contenteditable="true" spellcheck="false"></div>
+    </div>
+    <div class="action-row">
+      <button class="btn btn-dl" id="downloadBtn">⬇ Download .srt</button>
+      <button class="btn btn-cp" id="copyBtn">⎘ Copy</button>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>使用說明</strong><br>
+    ※ 先上傳音訊，再選擇主要目標語言，例如 Korean / Japanese / Vietnamese / Chinese / English。<br>
+    ※ 一般單語音檔請直接選目標語言，不需要勾選「指定混合語言時間段」。這樣通常最穩、也最快。<br>
+    ※ 如果音檔大部分是同一種語言，但某幾秒混入其他語言，請選主要語言後再勾選「指定混合語言時間段」。<br>
+    ※ 例：韓文錄音中 5-12 秒有日文標題，請選 Korean，勾選指定時間段，輸入 <strong>5-12</strong>。後端只會在 5-12 秒改用 mixed 自動偵測，其餘時間仍用 Korean。<br>
+    ※ 時間格式支援秒數、mm:ss、hh:mm:ss；每行一段，例如 <strong>0-8</strong>、<strong>01:12-01:20</strong>、<strong>00:01:12-00:01:20</strong>。<br>
+    ※ 如果整條音檔都頻繁混合多種語言，才選 Mixed multilingual；它會先用 VAD 切段，再逐段偵測語言與轉錄。<br>
+    ※ 「檢查模型版本」只會比較本地 cache 與 Hugging Face 遠端版本，不會下載或更新模型。<br>
+    ※ 前端只負責上傳音訊、顯示 SRT、下載與複製字幕。後端使用 <strong>FastAPI + faster-whisper large-v3</strong>，不使用 OpenAI paid API，也不需要 API key。<br>
+    ※ 第一次執行會下載模型；<strong>large-v3</strong> 在 CPU 上可能比較慢，目前預設 device=cpu、compute_type=int8。
+  </div>
+</div>
+
+<script src="js/app.js?v=20260606-0655"></script>
+</body>
+</html>

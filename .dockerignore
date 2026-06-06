@@ -1,0 +1,14 @@
+.DS_Store
+.git
+.agents
+.codex
+venv
+.venv
+__pycache__
+*.pyc
+*.cpuprofile
+frontend/node_modules
+frontend/dist
+frontend/.vite
+audio/*
+output/*

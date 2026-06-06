@@ -1,0 +1,40 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments
+venv/
+.venv/
+env/
+.env
+.env.*
+
+# Editor and local tooling
+.idea/
+.vscode/
+*.cpuprofile
+
+# Codex / local agent state
+.agents/
+.codex/
+
+# Docker / frontend build output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# User data and generated subtitles
+audio/*
+!audio/.gitkeep
+output/*
+!output/.gitkeep
+
+# Hugging Face / model caches if created locally
+.cache/
+models/

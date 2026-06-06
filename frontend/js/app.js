@@ -1,0 +1,503 @@
+const API_BASE_URL = getApiBaseUrl();
+const JOB_API_URL = `${API_BASE_URL}/transcribe-job`;
+const CLEAR_OUTPUT_URL = `${API_BASE_URL}/output`;
+const MODEL_STATUS_URL = `${API_BASE_URL}/model-status`;
+const ALLOWED_LANGUAGES = new Set(['auto', 'mixed', 'ko', 'ja', 'vi', 'zh', 'en']);
+const ALLOWED_AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'mp4', 'oga', 'ogg', 'opus', 'wav', 'webm']);
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+
+let audioFile = null;
+let audioObjectUrl = null;
+let srtContent = '';
+let currentLanguage = 'auto';
+let abortController = null;
+let progressTimer = null;
+let transcriptionStartedAt = 0;
+
+const $ = id => document.getElementById(id);
+
+function getApiBaseUrl() {
+  if (window.SRT_API_BASE_URL) return window.SRT_API_BASE_URL.replace(/\/$/, '');
+  if (window.SRT_API_URL) return window.SRT_API_URL.replace(/\/transcribe\/?$/, '').replace(/\/$/, '');
+
+  const hostname = location.hostname;
+  if (!hostname || hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://127.0.0.1:8001';
+  }
+
+  return `${location.protocol}//${hostname}:8001`;
+}
+
+if (location.protocol === 'file:') {
+  $('fileWarn').style.display = 'block';
+}
+
+$('fileInput').addEventListener('change', event => {
+  const file = event.target.files[0];
+  if (file) setFile(file);
+});
+
+$('transcribeBtn').addEventListener('click', () => {
+  if (abortController) {
+    cancelTranscription();
+    return;
+  }
+
+  startTranscription();
+});
+$('downloadBtn').addEventListener('click', downloadSRT);
+$('copyBtn').addEventListener('click', copySRT);
+$('clearOutputBtn').addEventListener('click', clearOutputFolder);
+$('checkModelBtn').addEventListener('click', checkModelStatus);
+$('useMixedRanges').addEventListener('change', event => {
+  $('mixedRangePanel').classList.toggle('open', event.target.checked);
+});
+
+document.querySelectorAll('[data-language]').forEach(option => {
+  option.addEventListener('click', () => selectLanguage(option.dataset.language));
+});
+
+document.querySelectorAll('input[name="language"]').forEach(input => {
+  input.addEventListener('change', event => selectLanguage(event.target.value));
+});
+
+const dropZone = $('dropZone');
+
+dropZone.addEventListener('dragover', event => {
+  event.preventDefault();
+  dropZone.classList.add('over');
+});
+
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('over');
+});
+
+dropZone.addEventListener('drop', event => {
+  event.preventDefault();
+  dropZone.classList.remove('over');
+
+  const file = event.dataTransfer.files[0];
+  if (file && isAllowedAudioFile(file)) {
+    setFile(file);
+  } else {
+    setStatus('請選擇音訊檔案', 'error');
+  }
+});
+
+function selectLanguage(language) {
+  if (!ALLOWED_LANGUAGES.has(language)) return;
+
+  currentLanguage = language;
+  const radio = document.querySelector(`input[name="language"][value="${language}"]`);
+  if (radio) radio.checked = true;
+
+  document.querySelectorAll('[data-language]').forEach(option => {
+    const isSelected = option.dataset.language === language;
+    option.classList.toggle('selected', isSelected);
+    option.setAttribute('aria-checked', String(isSelected));
+  });
+
+  setStatus(audioFile ? `已選擇語言：${language}` : '請先上傳音訊檔案', audioFile ? 'active' : '');
+}
+
+function setFile(file) {
+  if (!isAllowedAudioFile(file)) {
+    clearFileState();
+    setStatus('不支援的檔案格式，請選擇 MP3、M4A、WAV、FLAC 等音訊檔案', 'error');
+    return;
+  }
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    clearFileState();
+    setStatus('檔案太大，請選擇 500 MB 以下的音訊檔案', 'error');
+    return;
+  }
+
+  audioFile = file;
+
+  const dropName = $('dropName');
+  dropName.style.display = 'block';
+  dropName.textContent = '✓ ' + file.name;
+
+  if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
+  audioObjectUrl = URL.createObjectURL(file);
+
+  const audioPreview = $('audioPreview');
+  audioPreview.src = audioObjectUrl;
+  audioPreview.style.display = 'block';
+
+  $('transcribeBtn').disabled = false;
+  $('outputSection').style.display = 'none';
+  $('srtBox').textContent = '';
+  srtContent = '';
+  setProgress(0);
+  setStatus('已載入：' + file.name, 'active');
+}
+
+function isAllowedAudioFile(file) {
+  if (!file) return false;
+  if (file.type && (file.type.startsWith('audio/') || file.type === 'video/mp4' || file.type === 'video/webm')) {
+    return true;
+  }
+
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  return ALLOWED_AUDIO_EXTENSIONS.has(extension);
+}
+
+function clearFileState() {
+  audioFile = null;
+  srtContent = '';
+
+  if (audioObjectUrl) {
+    URL.revokeObjectURL(audioObjectUrl);
+    audioObjectUrl = null;
+  }
+
+  $('fileInput').value = '';
+
+  const dropName = $('dropName');
+  dropName.style.display = 'none';
+  dropName.textContent = '';
+
+  const audioPreview = $('audioPreview');
+  audioPreview.removeAttribute('src');
+  audioPreview.style.display = 'none';
+
+  $('transcribeBtn').disabled = true;
+  $('outputSection').style.display = 'none';
+  $('srtBox').textContent = '';
+  setProgress(0);
+}
+
+function setStatus(message, type = 'active') {
+  const status = $('status');
+  status.textContent = message;
+  status.className = 'status-bar' + (type ? ' ' + type : '');
+}
+
+function setProgress(value) {
+  $('progTrack').classList.remove('indeterminate');
+  $('progFill').style.width = Math.max(0, Math.min(value, 100)) + '%';
+}
+
+function setIndeterminateProgress() {
+  $('progFill').style.width = '';
+  $('progTrack').classList.add('indeterminate');
+}
+
+function stopProgressTimer() {
+  if (progressTimer) {
+    clearInterval(progressTimer);
+    progressTimer = null;
+  }
+}
+
+function startProgressTimer() {
+  transcriptionStartedAt = Date.now();
+  stopProgressTimer();
+  progressTimer = setInterval(() => {
+    const elapsedSeconds = Math.floor((Date.now() - transcriptionStartedAt) / 1000);
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = String(elapsedSeconds % 60).padStart(2, '0');
+    setStatus(`後端正在轉錄中... 已等待 ${minutes}:${seconds}。CPU large-v3 可能需要一段時間。`, 'active');
+  }, 5000);
+}
+
+function setTranscribingState(isTranscribing) {
+  const button = $('transcribeBtn');
+  if (isTranscribing) {
+    button.disabled = false;
+    button.textContent = '■ 取消轉錄';
+    button.classList.add('btn-cancel');
+    return;
+  }
+
+  button.textContent = '▶ 開始轉錄';
+  button.classList.remove('btn-cancel');
+  button.disabled = !audioFile;
+}
+
+async function startTranscription() {
+  if (!audioFile) {
+    setStatus('請先上傳音訊檔案', 'error');
+    return;
+  }
+
+  const button = $('transcribeBtn');
+  const saveOutput = $('saveOutput').checked;
+  const mixedRanges = getMixedRangesInput();
+  if (mixedRanges && currentLanguage === 'mixed') {
+    setStatus('指定混合語言時間段時，請選擇主要目標語言，不要選 Mixed multilingual。', 'error');
+    return;
+  }
+
+  abortController = new AbortController();
+  setTranscribingState(true);
+  $('outputSection').style.display = 'none';
+  setProgress(10);
+  setStatus('正在上傳音訊到 FastAPI 後端...', 'active');
+
+  try {
+    const srt = await transcribeWithFastAPI(audioFile, currentLanguage, saveOutput, mixedRanges, abortController.signal);
+
+    srtContent = srt;
+    $('srtBox').textContent = srtContent;
+    $('outputSection').style.display = 'block';
+    setProgress(100);
+    setStatus('轉錄完成，可以下載或複製 SRT。', 'success');
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      setProgress(0);
+      setStatus('已取消等待後端回覆。若後端已開始轉錄，伺服器會在目前工作結束或 timeout 後釋放資源。', 'warn');
+    } else {
+      setProgress(0);
+      setStatus('轉錄失敗：' + error.message, 'error');
+    }
+  } finally {
+    stopProgressTimer();
+    abortController = null;
+    setTranscribingState(false);
+  }
+}
+
+function cancelTranscription() {
+  if (abortController) {
+    abortController.abort();
+  }
+}
+
+function getMixedRangesInput() {
+  if (!$('useMixedRanges').checked) return '';
+  return $('mixedRanges').value.trim();
+}
+
+async function transcribeWithFastAPI(audioFile, language, saveOutput, mixedRanges, signal) {
+  const formData = new FormData();
+  formData.append('file', audioFile, audioFile.name);
+  formData.append('language', language);
+  formData.append('save_output', saveOutput ? 'true' : 'false');
+  formData.append('mixed_ranges', mixedRanges);
+
+  setIndeterminateProgress();
+  setStatus('正在上傳音訊並建立後端轉錄工作...', 'active');
+
+  const jobResponse = await fetch(JOB_API_URL, {
+    method: 'POST',
+    body: formData,
+    signal,
+  });
+  const jobText = await jobResponse.text();
+
+  if (!jobResponse.ok) {
+    throw new Error(extractErrorMessage(jobText, jobResponse.status));
+  }
+
+  const job = parseJsonResponse(jobText);
+  if (!job.job_id) {
+    throw new Error('後端沒有回傳 job_id');
+  }
+
+  setStatus('後端已收到工作，正在使用 faster-whisper large-v3 轉錄...', 'active');
+  startProgressTimer();
+
+  while (true) {
+    await waitWithAbort(3000, signal);
+
+    const statusResponse = await fetch(`${API_BASE_URL}/jobs/${job.job_id}`, { signal });
+    const statusText = await statusResponse.text();
+
+    if (!statusResponse.ok) {
+      throw new Error(extractErrorMessage(statusText, statusResponse.status));
+    }
+
+    const status = parseJsonResponse(statusText);
+    if (status.status === 'error') {
+      throw new Error(status.error || '轉錄工作失敗');
+    }
+
+    if (status.status === 'done') {
+      const srtResponse = await fetch(`${API_BASE_URL}/jobs/${job.job_id}/srt`, { signal });
+      const srtText = await srtResponse.text();
+
+      if (!srtResponse.ok) {
+        throw new Error(extractErrorMessage(srtText, srtResponse.status));
+      }
+
+      return srtText;
+    }
+  }
+}
+
+function extractErrorMessage(text, status) {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed.detail) return parsed.detail;
+  } catch {
+    // The backend normally returns JSON for HTTPException, but keep plain text readable.
+  }
+
+  return text || `HTTP ${status}`;
+}
+
+function parseJsonResponse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('後端回傳格式錯誤');
+  }
+}
+
+async function checkModelStatus() {
+  const button = $('checkModelBtn');
+  const status = $('modelStatus');
+
+  button.disabled = true;
+  status.className = 'model-status-text active';
+  status.textContent = '正在檢查 Hugging Face 遠端版本...';
+
+  try {
+    const response = await fetch(MODEL_STATUS_URL);
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(extractErrorMessage(text, response.status));
+    }
+
+    renderModelStatus(parseJsonResponse(text));
+  } catch (error) {
+    status.className = 'model-status-text error';
+    status.textContent = '模型版本檢查失敗：' + error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderModelStatus(data) {
+  const status = $('modelStatus');
+  const localRevision = shortRevision(data.local_revision);
+  const remoteRevision = shortRevision(data.remote_revision);
+
+  if (data.status === 'latest') {
+    status.className = 'model-status-text success';
+    status.textContent = `模型已是最新：${data.model_name} / ${data.repo_id}\n本地 ${localRevision} = 遠端 ${remoteRevision}`;
+    return;
+  }
+
+  if (data.status === 'outdated') {
+    status.className = 'model-status-text warn';
+    status.textContent = `模型不是最新：${data.model_name} / ${data.repo_id}\n本地 ${localRevision}，遠端 ${remoteRevision}\n要更新時請刪除 hf_cache volume 後重啟。`;
+    return;
+  }
+
+  if (data.status === 'not_cached') {
+    status.className = 'model-status-text warn';
+    status.textContent = `${data.message}\n遠端版本：${remoteRevision}`;
+    return;
+  }
+
+  status.className = 'model-status-text warn';
+  status.textContent = `${data.message || '無法判定模型是否最新'}\n本地版本：${localRevision}`;
+}
+
+function shortRevision(revision) {
+  if (!revision) return 'unknown';
+  return String(revision).slice(0, 12);
+}
+
+function waitWithAbort(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    }, { once: true });
+  });
+}
+
+function createAbortError() {
+  const error = new Error('AbortError');
+  error.name = 'AbortError';
+  return error;
+}
+
+function getCurrentSRT() {
+  return $('srtBox').textContent || srtContent || '';
+}
+
+function downloadSRT() {
+  const text = getCurrentSRT();
+  if (!text.trim()) {
+    setStatus('目前沒有可下載的 SRT 內容', 'error');
+    return;
+  }
+
+  const baseName = audioFile
+    ? audioFile.name.replace(/\.[^.]+$/, '')
+    : 'subtitle';
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = `${baseName}.srt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+async function copySRT() {
+  const text = getCurrentSRT();
+  if (!text.trim()) {
+    setStatus('目前沒有可複製的 SRT 內容', 'error');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus('已複製到剪貼簿', 'success');
+  } catch {
+    setStatus('複製失敗，請手動選取 SRT 內容', 'error');
+  }
+}
+
+async function clearOutputFolder() {
+  if (abortController) {
+    setStatus('轉錄中不能清空 output/，請先取消或等目前工作完成。', 'warn');
+    return;
+  }
+
+  const confirmed = window.confirm('確定要清空後端 output/ 裡的所有內容嗎？這個動作不能復原。');
+  if (!confirmed) return;
+
+  const button = $('clearOutputBtn');
+  button.disabled = true;
+  setStatus('正在清空 output/...', 'active');
+
+  try {
+    const response = await fetch(CLEAR_OUTPUT_URL, { method: 'DELETE' });
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(extractErrorMessage(text, response.status));
+    }
+
+    let deleted = 0;
+    try {
+      deleted = JSON.parse(text).deleted || 0;
+    } catch {
+      deleted = 0;
+    }
+
+    setStatus(`已清空 output/，刪除 ${deleted} 個項目。`, 'success');
+  } catch (error) {
+    setStatus('清空 output/ 失敗：' + error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
