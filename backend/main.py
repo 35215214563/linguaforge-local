@@ -52,7 +52,7 @@ jobs_lock = Lock()
 AUDIO_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="CaptionForge Local API")
+app = FastAPI(title="LinguaForge Local API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -448,7 +448,7 @@ def fetch_remote_model_revision(repo_id: str, revision: str = "main") -> str:
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "captionforge-local/1.0",
+            "User-Agent": "linguaforge-local/1.0",
         },
     )
 

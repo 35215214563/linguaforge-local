@@ -1,11 +1,11 @@
-# CaptionForge Local
+# LinguaForge Local
 
-CaptionForge Local 是一個本地執行的標準 `.srt` 字幕生成工具，可用於 YouTube、影片剪輯軟件、字幕編輯器和本地媒體播放器等 SRT 工作流。前端只負責上傳音訊、顯示 SRT、下載與複製；語音辨識由 FastAPI 後端的 `faster-whisper` 處理，不使用 OpenAI API、不需要 API key，也不在瀏覽器端執行 Whisper / ONNX / WebGPU / WASM。
+LinguaForge Local 是一個本地執行的多語言標準 `.srt` 字幕生成工具，可用於 YouTube、影片剪輯軟件、字幕編輯器和本地媒體播放器等 SRT 工作流。前端只負責上傳音訊、顯示 SRT、下載與複製；語音辨識由 FastAPI 後端的 `faster-whisper` 處理，不使用 OpenAI API、不需要 API key，也不在瀏覽器端執行 Whisper / ONNX / WebGPU / WASM。
 
 ## 專案結構
 
 ```text
-captionforge-local/
+linguaforge-local/
 ├─ frontend/
 │  ├─ srt.html
 │  ├─ css/
