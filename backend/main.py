@@ -421,6 +421,8 @@ def clear_directory_contents(directory: Path) -> int:
     directory.mkdir(exist_ok=True)
 
     for child in directory.iterdir():
+        if child.name == ".gitkeep":
+            continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
         else:
@@ -643,27 +645,41 @@ def parse_time_value(raw_value: str) -> float:
     if len(parts) not in {2, 3, 4}:
         raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
 
-    try:
-        numeric_parts = [float(part) for part in parts]
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}") from exc
-
-    if any(part < 0 for part in numeric_parts):
-        raise HTTPException(status_code=400, detail="mixed_ranges time values must be >= 0")
-
-    if len(numeric_parts) == 2:
-        minutes, seconds = numeric_parts
+    if len(parts) == 2:
+        minutes = parse_integer_time_part(parts[0], raw_value)
+        seconds = parse_seconds_time_part(parts[1], raw_value)
+        if seconds >= 60:
+            raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
         return (minutes * 60) + seconds
 
-    if len(numeric_parts) == 3:
-        hours, minutes, seconds = numeric_parts
+    if len(parts) == 3:
+        hours = parse_integer_time_part(parts[0], raw_value)
+        minutes = parse_integer_time_part(parts[1], raw_value)
+        seconds = parse_seconds_time_part(parts[2], raw_value)
+        if minutes >= 60 or seconds >= 60:
+            raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
         return (hours * 3600) + (minutes * 60) + seconds
 
-    hours, minutes, seconds, milliseconds = numeric_parts
-    if not re.match(r"^\d{1,3}$", parts[3]) or milliseconds > 999:
+    hours = parse_integer_time_part(parts[0], raw_value)
+    minutes = parse_integer_time_part(parts[1], raw_value)
+    seconds = parse_integer_time_part(parts[2], raw_value)
+    milliseconds = parse_integer_time_part(parts[3], raw_value)
+    if minutes >= 60 or seconds >= 60 or not re.match(r"^\d{1,3}$", parts[3]) or milliseconds > 999:
         raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
 
     return (hours * 3600) + (minutes * 60) + seconds + (milliseconds / 1000)
+
+
+def parse_integer_time_part(value: str, raw_value: str) -> int:
+    if not re.match(r"^\d+$", value):
+        raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
+    return int(value)
+
+
+def parse_seconds_time_part(value: str, raw_value: str) -> float:
+    if not re.match(r"^\d+(?:\.\d{1,3})?$", value):
+        raise HTTPException(status_code=400, detail=f"Invalid time value: {raw_value}")
+    return float(value)
 
 
 def get_allowed_suffix(original_filename: str | None) -> str:

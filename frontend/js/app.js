@@ -318,19 +318,28 @@ function updateRangeHelp() {
   const defaultLanguage = getDefaultExceptionLanguage();
 
   if (!isCustom) {
-    $('mixedRanges').placeholder = '例如：0-8\n8-01:12\n01:12-01:20\n00:00:00,000 --> 00:00:03,000';
-    $('rangeHint').textContent = '未勾自定義：每行只輸入時間段，例如 0-8；這些區間會用 mixed 逐段偵測。';
+    $('mixedRanges').placeholder = '例如：0-8\n8-01:12\n01:12-00:01:20\n00:00:00,000 --> 00:00:03,000';
+    $('rangeHint').textContent = [
+      '未勾自定義：每行只輸入時間段，這些區間會用 mixed 逐段偵測。',
+      '格式例子：0-8 = 0秒到8秒；8-01:12 = 8秒到1分12秒；01:12-00:01:20 = 1分12秒到1分20秒；00:00:00,000 --> 00:00:03,000 = 標準 SRT 時間。',
+    ].join('\n');
     return;
   }
 
   if (defaultLanguage) {
-    $('mixedRanges').placeholder = '例如：0-3\n8-01:12\n00:00:00,000 --> 00:00:03,000';
-    $('rangeHint').textContent = `已選預設例外語言：${LANGUAGE_LABELS[defaultLanguage]}。每行只輸入時間段，後端會自動套用 ${defaultLanguage}。`;
+    $('mixedRanges').placeholder = '例如：0-3\n8-01:12\n01:12-00:01:20\n00:00:00,000 --> 00:00:03,000';
+    $('rangeHint').textContent = [
+      `已選預設例外語言：${LANGUAGE_LABELS[defaultLanguage]}。每行只輸入時間段，後端會自動套用 ${defaultLanguage}。`,
+      '格式例子：0-3 = 0秒到3秒；8-01:12 = 8秒到1分12秒；01:12-00:01:20 = 1分12秒到1分20秒；00:00:00,000 --> 00:00:03,000 = 標準 SRT 時間。',
+    ].join('\n');
     return;
   }
 
-  $('mixedRanges').placeholder = '例如：0-3 ja\n12-18 mixed\n00:00:00,000 --> 00:00:03,000 ja';
-  $('rangeHint').textContent = '自定義模式：每行必須是「時間段 語言碼」，例如 0-3 ja。語言碼支援 auto、mixed、ko、ja、vi、zh、en。';
+  $('mixedRanges').placeholder = '例如：0-3 ja\n8-01:12 mixed\n01:12-00:01:20 en\n00:00:00,000 --> 00:00:03,000 ja';
+  $('rangeHint').textContent = [
+    '自定義模式：每行必須是「時間段 語言碼」。語言碼支援 auto、mixed、ko、ja、vi、zh、en。',
+    '格式例子：0-3 ja = 0秒到3秒用日文；8-01:12 mixed = 8秒到1分12秒逐段偵測；01:12-00:01:20 en = 1分12秒到1分20秒用英文。',
+  ].join('\n');
 }
 
 function resetDefaultExceptionLanguage() {
@@ -470,18 +479,43 @@ function parseTimeValueForValidation(value) {
   }
 
   if (parts.length === 2) {
+    if (!isIntegerTimePart(rawParts[0]) || !isSecondsTimePart(rawParts[1]) || parts[1] >= 60) {
+      return null;
+    }
     return (parts[0] * 60) + parts[1];
   }
 
   if (parts.length === 3) {
+    if (!isIntegerTimePart(rawParts[0]) || !isIntegerTimePart(rawParts[1]) || !isSecondsTimePart(rawParts[2])) {
+      return null;
+    }
+    if (parts[1] >= 60 || parts[2] >= 60) {
+      return null;
+    }
     return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
   }
 
-  if (!/^\d{1,3}$/.test(rawParts[3]) || parts[3] > 999) {
+  if (
+    !isIntegerTimePart(rawParts[0])
+    || !isIntegerTimePart(rawParts[1])
+    || !isIntegerTimePart(rawParts[2])
+    || !/^\d{1,3}$/.test(rawParts[3])
+    || parts[1] >= 60
+    || parts[2] >= 60
+    || parts[3] > 999
+  ) {
     return null;
   }
 
   return (parts[0] * 3600) + (parts[1] * 60) + parts[2] + (parts[3] / 1000);
+}
+
+function isIntegerTimePart(value) {
+  return /^\d+$/.test(value);
+}
+
+function isSecondsTimePart(value) {
+  return /^\d+(?:\.\d{1,3})?$/.test(value);
 }
 
 async function transcribeWithFastAPI(

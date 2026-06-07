@@ -132,14 +132,14 @@ docker compose down
 - `mixed_ranges`: 可選。指定少數混合 / 例外語言區間，其餘時間使用 `language` 指定的主要語言。
 - `mixed_ranges_custom`: `true` 或 `false`，預設 `false`。
 - `mixed_ranges_default_language`: 可選。只在 `mixed_ranges_custom=true` 時使用，支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。
-- `professional_optimization`: `true` 或 `false`，預設 `false`。啟用保守的 VAD 短段合併、前後 context padding、短字幕合併、重疊時間修正與教材格式修正。
+- `professional_optimization`: `true` 或 `false`，預設 `false`。啟用保守的 VAD 短段合併、前後 context padding、過長多句字幕拆分、短字幕合併、重疊時間修正與教材格式修正。
 
 `mixed_ranges_custom=false` 時，每行只輸入時間段，該區間會用 `mixed` 逐段偵測：
 
 ```text
 0-8
 8-01:12
-01:12-01:20
+01:12-00:01:20
 00:00:00,000 --> 00:00:03,000
 ```
 
@@ -147,7 +147,8 @@ docker compose down
 
 ```text
 0-3 ja
-12-18 mixed
+8-01:12 mixed
+01:12-00:01:20 en
 00:00:00,000 --> 00:00:03,000 ja
 ```
 
@@ -155,17 +156,20 @@ docker compose down
 
 ```text
 0-3
-12-18
+8-01:12
+01:12-00:01:20
 00:00:00,000 --> 00:00:03,000
 ```
 
-時間格式支援 `ss-ss`、`ss-mm:ss`、`mm:ss-mm:ss`、`hh:mm:ss-hh:mm:ss`、`hh:mm:ss,mmm-hh:mm:ss,mmm`、`hh:mm:ss:mmm-hh:mm:ss:mmm`，也支援標準 SRT 箭頭格式，例如 `00:00:00,000 --> 00:00:03,000`。
+時間格式支援 `ss-ss`、`ss-mm:ss`、`mm:ss-mm:ss`、`mm:ss-hh:mm:ss`、`hh:mm:ss-hh:mm:ss`、`hh:mm:ss,mmm-hh:mm:ss,mmm`、`hh:mm:ss:mmm-hh:mm:ss:mmm`，也支援標準 SRT 箭頭格式，例如 `00:00:00,000 --> 00:00:03,000`。使用冒號格式時，分鐘與秒數需小於 60；第 90 秒請寫成 `90`，不要寫成 `01:90`。
 
 語言碼支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。這適合音檔主體是韓文，但開頭幾秒是日文標題，或某些片段已知是英文 / 中文 / 越文的情況。
 
 `professional_optimization=true` 時，未改變模型本身，但會啟用保守的字幕優化流程：
 
 - mixed / VAD 模式會合併過短且間隔很近的語音段，並在轉錄時給前後約 0.4 秒 context，再把輸出時間裁回原語音區間。
+- 主要語言區段也會用較保守的 VAD 分段，避免長靜音前後的兩句話被塞進同一條字幕。
+- 如果模型仍把過長且含多個句子的字幕放在同一段，會按句號、問號、驚嘆號等句界保守拆分。
 - SRT 後處理會合併太短且相鄰的字幕、修正重疊時間，並盡量避免一個短詞被拆成兩條字幕。
 - 會套用少量教材格式修正，例如 `94%ページ` → `94ページ`、`第 10 課` → `第10課`。
 

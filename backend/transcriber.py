@@ -18,6 +18,8 @@ PRO_MIN_SUBTITLE_SECONDS = 0.7
 PRO_SHORT_SUBTITLE_SECONDS = 0.9
 PRO_MAX_MERGED_TEXT_CHARS = 50
 PRO_MAX_LINE_CHARS = 42
+PRO_SPLIT_SUBTITLE_SECONDS = 4.5
+PRO_SPLIT_MIN_PART_CHARS = 4
 
 
 @dataclass
@@ -168,6 +170,7 @@ class SRTTranscriber:
             start=start,
             end=end,
             language=language,
+            professional_optimization=professional_optimization,
         )
 
     def _append_target_audio_to_blocks(
@@ -177,8 +180,69 @@ class SRTTranscriber:
         start: float,
         end: float,
         language: str,
+        professional_optimization: bool,
     ) -> None:
         chunk = slice_audio(audio, start, end)
+        chunk_duration = len(chunk) / SAMPLE_RATE
+        if chunk_duration < MIN_MIXED_SEGMENT_SECONDS:
+            return
+
+        if professional_optimization:
+            vad_options = VadOptions(
+                threshold=0.5,
+                min_silence_duration_ms=700,
+                speech_pad_ms=300,
+                max_speech_duration_s=30,
+            )
+            speech_timestamps = get_speech_timestamps(
+                chunk,
+                vad_options=vad_options,
+                sampling_rate=SAMPLE_RATE,
+            )
+            if speech_timestamps:
+                for speech in merge_speech_timestamps(speech_timestamps):
+                    self._append_target_window_to_blocks(
+                        blocks,
+                        chunk,
+                        base_offset=start,
+                        speech_start_sample=max(0, int(speech["start"])),
+                        speech_end_sample=min(len(chunk), int(speech["end"])),
+                        language=language,
+                        professional_optimization=True,
+                    )
+                return
+
+        self._append_target_window_to_blocks(
+            blocks,
+            chunk,
+            base_offset=start,
+            speech_start_sample=0,
+            speech_end_sample=len(chunk),
+            language=language,
+            professional_optimization=False,
+        )
+
+    def _append_target_window_to_blocks(
+        self,
+        blocks: list[str],
+        audio,
+        base_offset: float,
+        speech_start_sample: int,
+        speech_end_sample: int,
+        language: str,
+        professional_optimization: bool,
+    ) -> None:
+        if speech_end_sample <= speech_start_sample:
+            return
+
+        start_sample = speech_start_sample
+        end_sample = speech_end_sample
+        if professional_optimization:
+            padding_samples = int(PRO_CONTEXT_PADDING_SECONDS * SAMPLE_RATE)
+            start_sample = max(0, speech_start_sample - padding_samples)
+            end_sample = min(len(audio), speech_end_sample + padding_samples)
+
+        chunk = audio[start_sample:end_sample]
         chunk_duration = len(chunk) / SAMPLE_RATE
         if chunk_duration < MIN_MIXED_SEGMENT_SECONDS:
             return
@@ -194,7 +258,13 @@ class SRTTranscriber:
             transcribe_kwargs["language"] = language
 
         segments, _info = self.model.transcribe(chunk, **transcribe_kwargs)
-        append_segments_to_blocks(blocks, segments, offset=start, max_end=end)
+        append_segments_to_blocks(
+            blocks,
+            segments,
+            offset=base_offset + (start_sample / SAMPLE_RATE),
+            min_start=base_offset + (speech_start_sample / SAMPLE_RATE) if professional_optimization else None,
+            max_end=base_offset + (speech_end_sample / SAMPLE_RATE) if professional_optimization else base_offset + (len(audio) / SAMPLE_RATE),
+        )
 
     def _append_mixed_audio_to_blocks(
         self,
@@ -368,6 +438,7 @@ def optimize_srt_text(srt_text: str) -> str:
         for block in blocks
     ]
     blocks = merge_short_subtitle_blocks(blocks)
+    blocks = split_long_sentence_blocks(blocks)
     blocks = [
         SubtitleBlock(block.start, block.end, wrap_subtitle_text(normalize_subtitle_text(block.text)))
         for block in blocks
@@ -466,6 +537,55 @@ def should_merge_subtitle_blocks(current: SubtitleBlock, next_block: SubtitleBlo
         return True
 
     return current_duration < 0.6 and gap <= 0.8
+
+
+def split_long_sentence_blocks(blocks: list[SubtitleBlock]) -> list[SubtitleBlock]:
+    split_blocks: list[SubtitleBlock] = []
+    for block in blocks:
+        split_blocks.extend(split_long_sentence_block(block))
+    return split_blocks
+
+
+def split_long_sentence_block(block: SubtitleBlock) -> list[SubtitleBlock]:
+    text = flatten_subtitle_text(block.text)
+    duration = block.end - block.start
+    if duration < PRO_SPLIT_SUBTITLE_SECONDS:
+        return [block]
+
+    parts = split_text_on_sentence_boundaries(text)
+    if len(parts) < 2:
+        return [block]
+
+    part_lengths = [len(re.sub(r"\s+", "", part)) for part in parts]
+    if any(length < PRO_SPLIT_MIN_PART_CHARS for length in part_lengths):
+        return [block]
+
+    total_length = sum(part_lengths)
+    if total_length <= 0:
+        return [block]
+
+    split_blocks: list[SubtitleBlock] = []
+    cursor = block.start
+    elapsed_length = 0
+    for index, part in enumerate(parts):
+        if index == len(parts) - 1:
+            part_end = block.end
+        else:
+            elapsed_length += part_lengths[index]
+            part_end = block.start + (duration * elapsed_length / total_length)
+
+        if part_end - cursor < PRO_MIN_SUBTITLE_SECONDS:
+            return [block]
+
+        split_blocks.append(SubtitleBlock(start=cursor, end=part_end, text=part))
+        cursor = part_end
+
+    return split_blocks
+
+
+def split_text_on_sentence_boundaries(text: str) -> list[str]:
+    parts = re.split(r"(?<=[。．.!?！？])\s+", text)
+    return [part.strip() for part in parts if part.strip()]
 
 
 def is_page_fragment(left: str, right: str) -> bool:

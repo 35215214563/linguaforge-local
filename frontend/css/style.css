@@ -274,6 +274,7 @@ audio {
   font-size: 0.6rem;
   line-height: 1.7;
   margin-top: 0.45rem;
+  white-space: pre-line;
 }
 
 .default-language-panel {

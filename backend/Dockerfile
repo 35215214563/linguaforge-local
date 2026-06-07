@@ -23,6 +23,5 @@ RUN useradd --create-home --uid 1000 app \
 
 EXPOSE 8001
 
-USER app
-
+ENTRYPOINT ["sh", "/app/backend/entrypoint.sh"]
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8001"]

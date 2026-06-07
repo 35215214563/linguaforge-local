@@ -144,15 +144,16 @@
       <textarea
         id="mixedRanges"
         rows="3"
-        placeholder="例如：0-8&#10;8-01:12&#10;01:12-01:20&#10;00:00:00,000 --> 00:00:03,000"
+        placeholder="例如：0-8&#10;8-01:12&#10;01:12-00:01:20&#10;00:00:00,000 --> 00:00:03,000"
         spellcheck="false"
       ></textarea>
-      <div class="range-hint" id="rangeHint">未勾自定義：每行只輸入時間段，例如 0-8；這些區間會用 mixed 逐段偵測。</div>
+      <div class="range-hint" id="rangeHint">未勾自定義：每行只輸入時間段，這些區間會用 mixed 逐段偵測。
+格式例子：0-8 = 0秒到8秒；8-01:12 = 8秒到1分12秒；01:12-00:01:20 = 1分12秒到1分20秒；00:00:00,000 --> 00:00:03,000 = 標準 SRT 時間。</div>
     </div>
 
     <label class="save-row">
       <input type="checkbox" id="professionalOptimization">
-      <span>專業字幕優化：改善 mixed/VAD 短段切割，並保守合併太短字幕、修正重疊與教材格式</span>
+      <span>專業字幕優化：改善 mixed/VAD 短段切割，保守拆分過長多句字幕，並合併太短字幕、修正重疊與教材格式</span>
     </label>
 
     <label class="save-row">
@@ -195,16 +196,17 @@
     ※ 未勾「自定義每段語言」時，每行只輸入時間段，例如 <strong>0-8</strong>、<strong>01:12-01:20</strong>、<strong>00:00:00,000 --> 00:00:03,000</strong>；這些區間會用 mixed 逐段偵測。<br>
     ※ 勾選「自定義每段語言」且預設例外語言保持「每行指定」時，每行必須輸入 <strong>時間段 語言碼</strong>，例如 <strong>0-3 ja</strong>、<strong>12-18 mixed</strong>、<strong>00:00:00,000 --> 00:00:03,000 ja</strong>。<br>
     ※ 如果所有例外時間段都是同一種語言，請在預設例外語言裡只選一個語言，例如 Japanese；下面就只需要輸入 <strong>0-3</strong>、<strong>12-18</strong>，不用重複寫 ja。<br>
-    ※ 時間格式支援 ss-ss、ss-mm:ss、mm:ss-mm:ss、hh:mm:ss-hh:mm:ss、hh:mm:ss,mmm-hh:mm:ss,mmm、hh:mm:ss:mmm-hh:mm:ss:mmm，也支援標準 SRT 箭頭，例如 <strong>00:00:00,000 --> 00:00:03,000</strong>。<br>
+    ※ 時間格式支援 ss-ss、ss-mm:ss、mm:ss-mm:ss、mm:ss-hh:mm:ss、hh:mm:ss-hh:mm:ss、hh:mm:ss,mmm-hh:mm:ss,mmm、hh:mm:ss:mmm-hh:mm:ss:mmm，也支援標準 SRT 箭頭，例如 <strong>00:00:00,000 --> 00:00:03,000</strong>。<br>
+    ※ 使用冒號格式時，分鐘與秒數需小於 60；如果要寫第 90 秒，請直接寫 <strong>90</strong>，不要寫 <strong>01:90</strong>。<br>
     ※ 語言碼支援 auto、mixed、ko、ja、vi、zh、en。<br>
     ※ 如果整條音檔都頻繁混合多種語言，才選 Mixed multilingual；它會先用 VAD 切段，再逐段偵測語言與轉錄。<br>
-    ※ 「專業字幕優化」是可選模式；未勾選時會保持原本輸出。勾選後才會啟用保守的 VAD 短段合併、前後 context padding、短字幕合併、重疊時間修正，以及像 <strong>94%ページ → 94ページ</strong>、<strong>第 10 課 → 第10課</strong> 這類教材格式修正。<br>
+    ※ 「專業字幕優化」是可選模式；未勾選時會保持原本輸出。勾選後才會啟用保守的 VAD 短段合併、前後 context padding、過長多句字幕拆分、短字幕合併、重疊時間修正，以及像 <strong>94%ページ → 94ページ</strong>、<strong>第 10 課 → 第10課</strong> 這類教材格式修正。<br>
     ※ 「檢查模型版本」只會比較本地 cache 與 Hugging Face 遠端版本，不會下載或更新模型。<br>
     ※ 前端只負責上傳音訊、顯示 SRT、下載與複製字幕。後端使用 <strong>FastAPI + faster-whisper large-v3</strong>，不使用 OpenAI paid API，也不需要 API key。<br>
     ※ 第一次執行會下載模型；<strong>large-v3</strong> 在 CPU 上可能比較慢，目前預設 device=cpu、compute_type=int8。
   </div>
 </div>
 
-<script src="js/app.js?v=20260607-0050"></script>
+<script src="js/app.js?v=20260607-0060"></script>
 </body>
 </html>
