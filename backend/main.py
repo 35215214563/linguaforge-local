@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.concurrency import run_in_threadpool
 
 from .srt_cleaner import SRTCleaner
 from .transcriber import SRTTranscriber
@@ -419,6 +420,7 @@ def get_transcription_job_srt(job_id: str) -> Response:
     )
 
 
+def make_srt_filename(original_filename: Optional[str]) -> str:
 @app.post("/srt/clean")
 def clean_srt(http_request: Request, request: CleanSRTRequest) -> dict[str, object]:
     check_rate_limit(get_client_key(http_request))

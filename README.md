@@ -44,6 +44,10 @@ linguaforge-local/
 ├─ .gitignore
 ├─ docker-compose.yml
 ├─ requirements-dev.txt
+│  └─ .gitkeep
+├─ .dockerignore
+├─ .gitignore
+├─ docker-compose.yml
 ├─ requirements.txt
 └─ README.md
 ```
