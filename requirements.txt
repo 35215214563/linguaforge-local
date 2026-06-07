@@ -1,4 +1,4 @@
-fastapi
-uvicorn[standard]
-python-multipart
-faster-whisper
+fastapi>=0.128,<0.137
+uvicorn[standard]>=0.39,<0.47
+python-multipart>=0.0.20,<0.1
+faster-whisper>=1.1,<2.0

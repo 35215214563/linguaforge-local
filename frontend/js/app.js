@@ -81,6 +81,10 @@ document.querySelectorAll('input[name="language"]').forEach(input => {
   input.addEventListener('change', event => selectLanguage(event.target.value));
 });
 
+window.addEventListener('beforeunload', () => {
+  if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
+});
+
 const dropZone = $('dropZone');
 
 dropZone.addEventListener('dragover', event => {
@@ -213,14 +217,30 @@ function stopProgressTimer() {
 }
 
 function startProgressTimer() {
-  transcriptionStartedAt = Date.now();
+  if (!transcriptionStartedAt) {
+    transcriptionStartedAt = Date.now();
+  }
   stopProgressTimer();
   progressTimer = setInterval(() => {
-    const elapsedSeconds = Math.floor((Date.now() - transcriptionStartedAt) / 1000);
-    const minutes = Math.floor(elapsedSeconds / 60);
-    const seconds = String(elapsedSeconds % 60).padStart(2, '0');
-    setStatus(`後端正在轉錄中... 已等待 ${minutes}:${seconds}。CPU large-v3 可能需要一段時間。`, 'active');
+    setStatus(`後端正在轉錄中... 已等待 ${formatElapsedTime(Date.now() - transcriptionStartedAt)}。CPU large-v3 可能需要一段時間。`, 'active');
   }, 5000);
+}
+
+function formatElapsedTime(elapsedMs) {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}小時${String(minutes).padStart(2, '0')}分${String(seconds).padStart(2, '0')}秒`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}分${String(seconds).padStart(2, '0')}秒`;
+  }
+
+  return `${seconds}秒`;
 }
 
 function setTranscribingState(isTranscribing) {
@@ -253,6 +273,7 @@ async function startTranscription() {
   }
 
   abortController = new AbortController();
+  transcriptionStartedAt = Date.now();
   setTranscribingState(true);
   $('outputSection').style.display = 'none';
   setProgress(10);
@@ -274,7 +295,7 @@ async function startTranscription() {
     $('srtBox').textContent = srtContent;
     $('outputSection').style.display = 'block';
     setProgress(100);
-    setStatus('轉錄完成，可以下載或複製 SRT。', 'success');
+    setStatus(`轉錄完成，可以下載或複製 SRT。總計耗時：${formatElapsedTime(Date.now() - transcriptionStartedAt)}（含上傳、排隊與後端轉錄）。`, 'success');
   } catch (error) {
     if (error.name === 'AbortError') {
       setProgress(0);

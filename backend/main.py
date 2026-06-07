@@ -21,6 +21,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from .transcriber import SRTTranscriber
 
@@ -39,6 +40,7 @@ MAX_CONCURRENT_TRANSCRIPTIONS = 1
 RATE_LIMIT_REQUESTS = 10
 RATE_LIMIT_WINDOW_SECONDS = 60
 TRANSCRIPTION_TIMEOUT_SECONDS = 30 * 60
+STUCK_JOB_GRACE_SECONDS = 5 * 60
 JOB_TTL_SECONDS = 60 * 60
 MODEL_STATUS_TIMEOUT_SECONDS = 10
 
@@ -109,7 +111,8 @@ def model_status() -> dict[str, object]:
     local_revision = get_cached_model_revision(MODEL_REPO_ID, MODEL_REVISION)
     try:
         remote_revision = fetch_remote_model_revision(MODEL_REPO_ID, MODEL_REVISION)
-    except Exception as exc:
+    except Exception:
+        logger.warning("Failed to check remote Hugging Face model revision", exc_info=True)
         return {
             "status": "unknown",
             "model_name": MODEL_NAME,
@@ -118,7 +121,7 @@ def model_status() -> dict[str, object]:
             "local_revision": local_revision,
             "remote_revision": None,
             "is_latest": None,
-            "message": f"無法連線到 Hugging Face 檢查遠端版本：{exc}",
+            "message": "無法連線到 Hugging Face 檢查遠端版本。請確認網路連線或稍後再試。",
         }
 
     if local_revision is None:
@@ -227,7 +230,7 @@ async def transcribe(
 
         if save_output:
             output_path = OUTPUT_DIR / make_srt_filename(file.filename)
-            output_path.write_text(srt_text, encoding="utf-8")
+            await run_in_threadpool(output_path.write_text, srt_text, encoding="utf-8")
 
         return Response(
             content=srt_text,
@@ -733,6 +736,7 @@ def get_client_key(request: Request) -> str:
 
 def check_rate_limit(client_key: str) -> None:
     now = time.monotonic()
+    cleanup_rate_limit_hits(now)
     hits = rate_limit_hits[client_key]
 
     while hits and now - hits[0] > RATE_LIMIT_WINDOW_SECONDS:
@@ -742,6 +746,15 @@ def check_rate_limit(client_key: str) -> None:
         raise HTTPException(status_code=429, detail="Too many transcription requests. Try again later.")
 
     hits.append(now)
+
+
+def cleanup_rate_limit_hits(now: float) -> None:
+    for key, hits in list(rate_limit_hits.items()):
+        while hits and now - hits[0] > RATE_LIMIT_WINDOW_SECONDS:
+            hits.popleft()
+
+        if not hits:
+            rate_limit_hits.pop(key, None)
 
 
 def get_job_or_404(job_id: str) -> dict[str, object]:
@@ -754,12 +767,22 @@ def get_job_or_404(job_id: str) -> dict[str, object]:
 
 def cleanup_old_jobs() -> None:
     now = time.time()
+    stale_running_after = TRANSCRIPTION_TIMEOUT_SECONDS + STUCK_JOB_GRACE_SECONDS
     with jobs_lock:
-        expired_job_ids = [
-            job_id
-            for job_id, job in jobs.items()
-            if job.get("status") in {"done", "error"} and now - float(job.get("updated_at", now)) > JOB_TTL_SECONDS
-        ]
+        expired_job_ids = []
+        for job_id, job in jobs.items():
+            status = job.get("status")
+            if status in {"done", "error"} and now - float(job.get("updated_at", now)) > JOB_TTL_SECONDS:
+                expired_job_ids.append(job_id)
+            elif status == "running" and now - float(job.get("created_at", now)) > stale_running_after:
+                job.update(
+                    {
+                        "status": "error",
+                        "error": "Transcription timed out. Try a shorter audio file.",
+                        "updated_at": now,
+                    }
+                )
+
         for job_id in expired_job_ids:
             jobs.pop(job_id, None)
 
@@ -813,12 +836,15 @@ def finish_transcription_job(
 ) -> None:
     try:
         srt_text = future.result()
-        if save_output:
+        with jobs_lock:
+            should_update_job = job_id in jobs and jobs[job_id].get("status") == "running"
+
+        if save_output and should_update_job:
             output_path = OUTPUT_DIR / make_srt_filename(original_filename)
             output_path.write_text(srt_text, encoding="utf-8")
 
         with jobs_lock:
-            if job_id in jobs:
+            if should_update_job and job_id in jobs and jobs[job_id].get("status") == "running":
                 jobs[job_id].update(
                     {
                         "status": "done",
@@ -830,7 +856,7 @@ def finish_transcription_job(
     except Exception:
         logger.exception("Background transcription job failed for file %s", original_filename)
         with jobs_lock:
-            if job_id in jobs:
+            if job_id in jobs and jobs[job_id].get("status") == "running":
                 jobs[job_id].update(
                     {
                         "status": "error",

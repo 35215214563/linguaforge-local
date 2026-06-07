@@ -7,16 +7,24 @@ LinguaForge Local 是一個本地執行的多語言標準 `.srt` 字幕生成工
 ```text
 linguaforge-local/
 ├─ frontend/
+│  ├─ Dockerfile
 │  ├─ srt.html
 │  ├─ css/
 │  │  └─ style.css
 │  └─ js/
 │     └─ app.js
 ├─ backend/
+│  ├─ Dockerfile
+│  ├─ entrypoint.sh
 │  ├─ main.py
 │  └─ transcriber.py
 ├─ audio/
+│  └─ .gitkeep
 ├─ output/
+│  └─ .gitkeep
+├─ .dockerignore
+├─ .gitignore
+├─ docker-compose.yml
 ├─ requirements.txt
 └─ README.md
 ```
@@ -86,6 +94,8 @@ API docs：
 [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs)
 
 第一次啟動後端會下載 `large-v3` 模型，Docker volume `hf_cache` 會保留 Hugging Face 模型快取，之後通常不用重下載。輸出的 `.srt` 會寫到本機的 `output/`。Docker 服務以非 root 使用者執行。
+
+Docker Compose 已替後端設定 healthcheck，前端 container 會等 `/health` 可以回應後才啟動。第一次下載模型時，這個等待可能會比較久。
 
 停止服務：
 
@@ -196,4 +206,4 @@ docker compose down
 
 `DELETE /output`
 
-清空後端 `output/` 資料夾裡的所有內容，保留 `output/` 資料夾本身。前端的「清空 output/」按鈕會先跳出確認視窗。
+清空後端 `output/` 資料夾裡的輸出內容，保留 `output/` 資料夾本身和 `.gitkeep`。前端的「清空 output/」按鈕會先跳出確認視窗。

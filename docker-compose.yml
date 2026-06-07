@@ -10,6 +10,12 @@ services:
       - hf_cache:/home/app/.cache/huggingface
     ports:
       - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 80
+      start_period: 30s
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8001
 
   frontend:
@@ -20,7 +26,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     command: python3 -m http.server 8000 --bind 0.0.0.0
 
 volumes:
