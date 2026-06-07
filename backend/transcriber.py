@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Optional
 
 from faster_whisper import WhisperModel
 from faster_whisper.audio import decode_audio
@@ -51,7 +52,7 @@ class SRTTranscriber:
         self,
         audio_path: str,
         language: str = "auto",
-        mixed_ranges: list[tuple[float, float, str]] | None = None,
+        mixed_ranges: Optional[list[tuple[float, float, str]]] = None,
         professional_optimization: bool = False,
     ) -> str:
         if language == "mixed" and not mixed_ranges:
@@ -353,8 +354,8 @@ def append_segments_to_blocks(
     blocks: list[str],
     segments,
     offset: float = 0.0,
-    min_start: float | None = None,
-    max_end: float | None = None,
+    min_start: Optional[float] = None,
+    max_end: Optional[float] = None,
 ) -> None:
     for segment in segments:
         text = (segment.text or "").strip()

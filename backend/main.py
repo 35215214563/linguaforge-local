@@ -13,6 +13,7 @@ from collections import defaultdict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
+from typing import Optional, Union
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest, urlopen
 from uuid import uuid4
@@ -146,7 +147,7 @@ def model_status() -> dict[str, object]:
 
 
 @app.delete("/output")
-def clear_output() -> dict[str, int | str]:
+def clear_output() -> dict[str, Union[int, str]]:
     deleted = clear_directory_contents(OUTPUT_DIR)
     return {"status": "ok", "deleted": deleted}
 
@@ -176,9 +177,9 @@ async def transcribe(
         mixed_ranges_default_language,
     )
 
-    temp_path: Path | None = None
+    temp_path: Optional[Path] = None
     transcription_slot_acquired = False
-    future: Future[str] | None = None
+    future: Optional[Future[str]] = None
 
     try:
         suffix = get_allowed_suffix(file.filename)
@@ -291,7 +292,7 @@ async def create_transcription_job(
         mixed_ranges_default_language,
     )
 
-    temp_path: Path | None = None
+    temp_path: Optional[Path] = None
     transcription_slot_acquired = False
 
     try:
@@ -403,7 +404,7 @@ def get_transcription_job_srt(job_id: str) -> Response:
     )
 
 
-def make_srt_filename(original_filename: str | None) -> str:
+def make_srt_filename(original_filename: Optional[str]) -> str:
     stem = Path(original_filename or "transcription").stem or "transcription"
     normalized_stem = unicodedata.normalize("NFKC", stem)
     safe_stem = "".join(
@@ -432,7 +433,7 @@ def clear_directory_contents(directory: Path) -> int:
     return deleted
 
 
-def get_cached_model_revision(repo_id: str, revision: str = "main") -> str | None:
+def get_cached_model_revision(repo_id: str, revision: str = "main") -> Optional[str]:
     repo_cache_dir = get_hf_hub_cache_dir() / f"models--{repo_id.replace('/', '--')}"
     ref_path = repo_cache_dir / "refs" / revision
     if ref_path.is_file():
@@ -596,7 +597,7 @@ def parse_range_value(raw_range: str) -> tuple[float, float]:
     return start, end
 
 
-def split_range_value(raw_range: str) -> tuple[str, str] | None:
+def split_range_value(raw_range: str) -> Optional[tuple[str, str]]:
     value = raw_range.strip()
     if not value:
         return None
@@ -620,7 +621,7 @@ def split_range_value(raw_range: str) -> tuple[str, str] | None:
 
 def ensure_ranges_do_not_overlap(ranges: list[tuple[float, float, str]]) -> None:
     sorted_ranges = sorted(ranges, key=lambda item: item[0])
-    previous_end: float | None = None
+    previous_end: Optional[float] = None
     for start, end, _language in sorted_ranges:
         if previous_end is not None and start < previous_end:
             raise HTTPException(status_code=400, detail="mixed_ranges must not overlap")
@@ -682,7 +683,7 @@ def parse_seconds_time_part(value: str, raw_value: str) -> float:
     return float(value)
 
 
-def get_allowed_suffix(original_filename: str | None) -> str:
+def get_allowed_suffix(original_filename: Optional[str]) -> str:
     suffix = Path(original_filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -782,7 +783,7 @@ async def release_transcription_slot() -> None:
 
 def defer_future_cleanup(
     future: Future[str],
-    temp_path: Path | None,
+    temp_path: Optional[Path],
     release_slot: bool,
 ) -> None:
     loop = asyncio.get_running_loop()
@@ -806,8 +807,8 @@ def finish_transcription_job(
     loop: asyncio.AbstractEventLoop,
     job_id: str,
     future: Future[str],
-    temp_path: Path | None,
-    original_filename: str | None,
+    temp_path: Optional[Path],
+    original_filename: Optional[str],
     save_output: bool,
 ) -> None:
     try:
