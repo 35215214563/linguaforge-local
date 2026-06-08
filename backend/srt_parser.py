@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 SRT_TIME_PATTERN = re.compile(r"^(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})$")
 CJK_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 LINE_START_PUNCTUATION = "、。，．！？!?…；;：:,，"
@@ -95,16 +94,16 @@ def validate_srt_blocks(blocks: list[SRTBlock]) -> None:
 
 
 def validate_srt_quality(
-    blocks: list[SRTBlock],
-    *,
-    min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS,
-    min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS,
-    max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS,
-    max_cjk_line_chars: int = DEFAULT_MAX_CJK_LINE_CHARS,
-    max_latin_line_chars: int = DEFAULT_MAX_LATIN_LINE_CHARS,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_cjk_cps: float = DEFAULT_MAX_CJK_CPS,
-    max_latin_cps: float = DEFAULT_MAX_LATIN_CPS,
+        blocks: list[SRTBlock],
+        *,
+        min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS,
+        min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS,
+        max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS,
+        max_cjk_line_chars: int = DEFAULT_MAX_CJK_LINE_CHARS,
+        max_latin_line_chars: int = DEFAULT_MAX_LATIN_LINE_CHARS,
+        max_lines: int = DEFAULT_MAX_LINES,
+        max_cjk_cps: float = DEFAULT_MAX_CJK_CPS,
+        max_latin_cps: float = DEFAULT_MAX_LATIN_CPS,
 ) -> None:
     validate_srt_blocks(blocks)
     issues = collect_srt_quality_issues(
@@ -123,16 +122,16 @@ def validate_srt_quality(
 
 
 def collect_srt_quality_issues(
-    blocks: list[SRTBlock],
-    *,
-    min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS,
-    min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS,
-    max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS,
-    max_cjk_line_chars: int = DEFAULT_MAX_CJK_LINE_CHARS,
-    max_latin_line_chars: int = DEFAULT_MAX_LATIN_LINE_CHARS,
-    max_lines: int = DEFAULT_MAX_LINES,
-    max_cjk_cps: float = DEFAULT_MAX_CJK_CPS,
-    max_latin_cps: float = DEFAULT_MAX_LATIN_CPS,
+        blocks: list[SRTBlock],
+        *,
+        min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS,
+        min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS,
+        max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS,
+        max_cjk_line_chars: int = DEFAULT_MAX_CJK_LINE_CHARS,
+        max_latin_line_chars: int = DEFAULT_MAX_LATIN_LINE_CHARS,
+        max_lines: int = DEFAULT_MAX_LINES,
+        max_cjk_cps: float = DEFAULT_MAX_CJK_CPS,
+        max_latin_cps: float = DEFAULT_MAX_LATIN_CPS,
 ) -> list[str]:
     issues: list[str] = []
     previous: SRTBlock | None = None

@@ -1,0 +1,153 @@
+{
+  "protected_terms": [
+    "CD",
+    "DVD",
+    "MP3",
+    "PDF",
+    "SRT",
+    "FSI",
+    "CIA",
+    "MI6",
+    "ChatGPT",
+    "Gemini",
+    "Claude",
+    "Ollama",
+    "Qwen",
+    "DeepSeek",
+    "Whisper",
+    "faster-whisper",
+    "Anki",
+    "Quizlet",
+    "TOEIC",
+    "JLPT",
+    "N1",
+    "N2",
+    "Pattern Drill"
+  ],
+  "numeric_rules": {
+    "preserve_arabic_digits": true,
+    "do_not_convert_digits_to_kanji": true,
+    "do_not_convert_half_width_to_full_width": true
+  },
+  "correction_hints": [
+    {
+      "wrong": "問答對聯",
+      "suggest": "問答對練",
+      "language": "zh",
+      "confidence": "high",
+      "condition": "speaking practice / conversation drill context"
+    },
+    {
+      "wrong": "對戀",
+      "suggest": "對練",
+      "language": "zh",
+      "confidence": "high",
+      "condition": "AI conversation practice context"
+    },
+    {
+      "wrong": "PatternDrill",
+      "suggest": "Pattern Drill",
+      "language": "any",
+      "confidence": "high",
+      "condition": "English term spacing correction"
+    },
+    {
+      "wrong": "whatImeanis",
+      "suggest": "what I mean is",
+      "language": "any",
+      "confidence": "high",
+      "condition": "English phrase spacing correction"
+    },
+    {
+      "wrong": "HonestlyIthink",
+      "suggest": "Honestly, I think",
+      "language": "any",
+      "confidence": "high",
+      "condition": "English phrase spacing and punctuation correction"
+    },
+    {
+      "wrong": "자전거를탈수있어요",
+      "suggest": "자전거를 탈 수 있어요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "일본생활은어때요",
+      "suggest": "일본 생활은 어때요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "일주일에몇번가요",
+      "suggest": "일주일에 몇 번 가요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "일주일에세번가요",
+      "suggest": "일주일에 세 번 가요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "전혀안피곤해요",
+      "suggest": "전혀 안 피곤해요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "아르바이트는몇시부터예요",
+      "suggest": "아르바이트는 몇 시부터예요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "몇시",
+      "suggest": "몇 시",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "몇번",
+      "suggest": "몇 번",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "새벽1시까지해요",
+      "suggest": "새벽 1시까지 해요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "저녁6시부터",
+      "suggest": "저녁 6시부터",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "몇시까지해요",
+      "suggest": "몇 시까지 해요",
+      "language": "ko",
+      "confidence": "high",
+      "condition": "Korean spacing correction"
+    },
+    {
+      "wrong": "자전거를탈수있어요진짜요",
+      "suggest": "자전거를 탈 수 있어요? 진짜요",
+      "language": "ko",
+      "confidence": "medium",
+      "condition": "Korean spacing and sentence boundary correction"
+    }
+  ]
+}

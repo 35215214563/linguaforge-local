@@ -9,7 +9,6 @@ from typing import Any, Optional
 
 from .srt_parser import SRTBlock, SRTValidationError, parse_srt, serialize_srt, validate_srt_blocks
 
-
 logger = logging.getLogger(__name__)
 CORRECTIONS_DIR = Path(__file__).resolve().parent / "subtitle_corrections"
 CJK_CHAR_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
@@ -36,12 +35,12 @@ class SRTCleaner:
         self.corrections_dir = corrections_dir or CORRECTIONS_DIR
 
     def clean_rule_based(
-        self,
-        srt_text: str,
-        language: str = "auto",
-        script: str = "",
-        enable_contextual_corrections: bool = False,
-        custom_terms: Optional[list[str]] = None,
+            self,
+            srt_text: str,
+            language: str = "auto",
+            script: str = "",
+            enable_contextual_corrections: bool = False,
+            custom_terms: Optional[list[str]] = None,
     ) -> CleanSRTResult:
         try:
             blocks = parse_srt(srt_text, strict=True)
@@ -88,13 +87,13 @@ class SRTCleaner:
         raise NotImplementedError("LLM cleanup is reserved for a future version.")
 
     def clean_text(
-        self,
-        text: str,
-        corrections: Optional[CorrectionSet] = None,
-        index: Optional[int] = None,
-        language: str = "auto",
-        enable_contextual_corrections: bool = False,
-        custom_terms: Optional[list[str]] = None,
+            self,
+            text: str,
+            corrections: Optional[CorrectionSet] = None,
+            index: Optional[int] = None,
+            language: str = "auto",
+            enable_contextual_corrections: bool = False,
+            custom_terms: Optional[list[str]] = None,
     ) -> tuple[str, list[dict[str, object]]]:
         correction_set = corrections or self.load_corrections(language, custom_terms or [])
         changes: list[dict[str, object]] = []
@@ -166,12 +165,12 @@ class SRTCleaner:
                 merged.terms.append(term)
 
     def apply_replacement_map(
-        self,
-        text: str,
-        replacements: dict[str, str],
-        change_type: str,
-        index: Optional[int],
-        changes: list[dict[str, object]],
+            self,
+            text: str,
+            replacements: dict[str, str],
+            change_type: str,
+            index: Optional[int],
+            changes: list[dict[str, object]],
     ) -> str:
         current = text
         for before, after in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
@@ -288,10 +287,10 @@ def needs_word_boundary(value: str) -> bool:
 
 
 def apply_format_normalization(
-    text: str,
-    index: Optional[int],
-    changes: list[dict[str, object]],
-    language: str = "auto",
+        text: str,
+        index: Optional[int],
+        changes: list[dict[str, object]],
+        language: str = "auto",
 ) -> str:
     current = text
     patterns = [
@@ -362,10 +361,10 @@ DEFAULT_CLEANER = SRTCleaner()
 
 
 def clean_subtitle_text(
-    text: str,
-    language: str = "auto",
-    enable_contextual_corrections: bool = False,
-    custom_terms: Optional[list[str]] = None,
+        text: str,
+        language: str = "auto",
+        enable_contextual_corrections: bool = False,
+        custom_terms: Optional[list[str]] = None,
 ) -> str:
     cleaned_text, _changes = DEFAULT_CLEANER.clean_text(
         text,

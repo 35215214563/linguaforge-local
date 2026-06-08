@@ -29,6 +29,8 @@ let currentLanguage = 'auto';
 let abortController = null;
 let progressTimer = null;
 let transcriptionStartedAt = 0;
+let aiCleanTimer = null;
+let aiCleanStartedAt = 0;
 
 const $ = id => document.getElementById(id);
 
@@ -239,6 +241,22 @@ function stopProgressTimer() {
   }
 }
 
+function stopAiCleanTimer() {
+  if (aiCleanTimer) {
+    clearInterval(aiCleanTimer);
+    aiCleanTimer = null;
+  }
+}
+
+function startAiCleanTimer() {
+  aiCleanStartedAt = Date.now();
+  stopAiCleanTimer();
+  setStatus('AI 正在思考中... AI 思考時間：0秒', 'active');
+  aiCleanTimer = setInterval(() => {
+    setStatus(`AI 正在思考中... AI 思考時間：${formatElapsedTime(Date.now() - aiCleanStartedAt)}`, 'active');
+  }, 1000);
+}
+
 function startProgressTimer() {
   if (!transcriptionStartedAt) {
     transcriptionStartedAt = Date.now();
@@ -278,6 +296,18 @@ function setTranscribingState(isTranscribing) {
   button.textContent = '▶ 開始轉錄';
   button.classList.remove('btn-cancel');
   button.disabled = !audioFile;
+}
+
+function setAiCleanState(isThinking) {
+  const button = $('aiCleanSrtBtn');
+  if (isThinking) {
+    button.disabled = true;
+    button.textContent = 'AI 思考中...';
+    return;
+  }
+
+  button.textContent = 'AI Clean Text SRT';
+  button.disabled = !rawSrtContent.trim();
 }
 
 async function startTranscription() {
@@ -716,8 +746,8 @@ async function aiCleanSRT() {
   }
 
   const button = $('aiCleanSrtBtn');
-  button.disabled = true;
-  setStatus('正在生成 AI Clean Text SRT...', 'active');
+  setAiCleanState(true);
+  startAiCleanTimer();
 
   try {
     const response = await fetch(AI_CLEAN_SRT_URL, {
@@ -746,25 +776,35 @@ async function aiCleanSRT() {
 
     const changes = Array.isArray(payload.changes) ? payload.changes : [];
     const aiChangeCount = changes.filter(change => change.type === 'ai_text_correction').length;
+    const thinkingTime = formatAiThinkingTime(payload.metrics, aiCleanStartedAt);
     updateSrtActionButtons();
 
     if (!payload.ai_used) {
-      setStatus(`AI Clean Text 未使用 AI，已顯示 rule-based 結果。${aiCleanFallbackMessage}`, 'warn');
+      setStatus(`AI Clean Text 未使用 AI，已顯示 rule-based 結果。AI 思考時間：${thinkingTime}。${aiCleanFallbackMessage}`, 'warn');
       return;
     }
 
     if (aiCleanFallbackMessage) {
-      setStatus(`AI Clean Text 已生成，套用 ${aiChangeCount} 項 AI 修正；部分 block 已回退。${aiCleanFallbackMessage}`, 'warn');
+      setStatus(`AI Clean Text 已生成，套用 ${aiChangeCount} 項 AI 修正；部分 block 已回退。AI 思考時間：${thinkingTime}。${aiCleanFallbackMessage}`, 'warn');
       return;
     }
 
-    setStatus(`AI Clean Text SRT 已生成，套用 ${aiChangeCount} 項 AI 修正。`, 'success');
+    setStatus(`AI Clean Text SRT 已生成，套用 ${aiChangeCount} 項 AI 修正。AI 思考時間：${thinkingTime}。`, 'success');
   } catch (error) {
     setStatus('AI Clean Text SRT 失敗：' + error.message, 'error');
   } finally {
-    button.disabled = false;
+    stopAiCleanTimer();
+    setAiCleanState(false);
     updateSrtActionButtons();
   }
+}
+
+function formatAiThinkingTime(metrics, startedAt) {
+  const aiCallMs = metrics && Number(metrics.ai_call_ms);
+  if (Number.isFinite(aiCallMs) && aiCallMs >= 0) {
+    return formatElapsedTime(aiCallMs);
+  }
+  return formatElapsedTime(Date.now() - startedAt);
 }
 
 async function checkModelStatus() {

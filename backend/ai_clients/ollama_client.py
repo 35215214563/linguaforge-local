@@ -4,6 +4,7 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as UrlRequest, urlopen
 
+from ..ai_clean_hints import select_relevant_ai_clean_hints
 from .base import AICleanClientConfig, AICleanClientError, AICleanTimeoutError
 
 
@@ -18,11 +19,31 @@ Do not add content that is not present in the audio.
 Preserve oral style.
 Preserve each block independently.
 Do not move text between blocks.
+Do not think step by step.
+Do not output reasoning.
+Do not output analysis.
+Do not output chain-of-thought.
+Do not output "Thought for".
+Do not output "Thinking Process".
+Do not output <think>.
+Do not output </think>.
 Return JSON only.
-Return an array of objects with index and clean_text.
+Return an object with an items array of objects with index and clean_text.
+Use this output shape:
+{
+  "items": [
+    {"index": 1, "clean_text": "..."}
+  ]
+}
+Output final JSON only.
+No text before or after JSON.
 Do not output markdown.
 Do not output full SRT.
-Do not output SRT timestamps."""
+Do not output SRT timestamps.
+Do not translate.
+Preserve each block's original language/script.
+Mixed Japanese/Korean subtitles may appear.
+Korean spacing fixes are allowed, translation is not allowed."""
 
 
 class OllamaAICleanClient:
@@ -38,8 +59,13 @@ class OllamaAICleanClient:
             "stream": False,
             "options": {
                 "temperature": self.config.temperature,
+                "num_predict": self.config.num_predict,
             },
         }
+        if not self.config.think:
+            payload["think"] = False
+        if self.config.format_json:
+            payload["format"] = "json"
         request = UrlRequest(
             f"{self.config.base_url.rstrip('/')}/api/generate",
             data=json.dumps(payload).encode("utf-8"),
@@ -70,12 +96,31 @@ class OllamaAICleanClient:
 
 
 def build_ai_clean_prompt(blocks: list[dict[str, object]], language: str) -> str:
-    return "\n".join(
+    prompt_lines = [
+        f"Language: {language or 'auto'}",
+        "Input subtitle blocks are JSON objects with index and text only.",
+        "Correct each block independently and return JSON only.",
+        "Output shape must be an object with an items array:",
+        '{"items":[{"index":1,"clean_text":"..."}]}',
+    ]
+
+    hints = select_relevant_ai_clean_hints(blocks, language)
+    if hints:
+        prompt_lines.extend(
+            [
+                "The following correction hints are advisory, not mandatory replacements.",
+                "Use them only when the current context strongly supports the correction.",
+                "If unsure, keep the original text.",
+                "Hard rules such as numeric preservation must always be followed.",
+                "Relevant hints:",
+                json.dumps(hints, ensure_ascii=False),
+            ]
+        )
+
+    prompt_lines.extend(
         [
-            f"Language: {language or 'auto'}",
-            "Input subtitle blocks are JSON objects with index and text only.",
-            "Correct each block independently and return JSON only.",
             "Input:",
             json.dumps(blocks, ensure_ascii=False),
         ]
     )
+    return "\n".join(prompt_lines)

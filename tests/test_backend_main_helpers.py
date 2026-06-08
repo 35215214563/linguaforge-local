@@ -293,6 +293,9 @@ class BackendMainHelperTests(unittest.TestCase):
         self.assertTrue(result["ai_used"])
         self.assertIsNone(result["fallback_reason"])
         self.assertIn("问答对练。", result["ai_clean_srt"])
+        self.assertIn("metrics", result)
+        self.assertEqual(result["metrics"]["model"], "test-model")
+        self.assertEqual(result["metrics"]["provider"], "ollama")
         self.assertTrue(any(change["type"] == "ai_text_correction" for change in result["changes"]))
 
     def test_ai_clean_srt_endpoint_ai_disabled_by_request(self):
@@ -316,6 +319,7 @@ class BackendMainHelperTests(unittest.TestCase):
         self.assertFalse(result["ai_used"])
         self.assertEqual(result["ai_clean_srt"], result["rule_based_srt"])
         self.assertEqual(result["fallback_reason"], "AI clean disabled by request.")
+        self.assertIn("metrics", result)
 
 
 if __name__ == "__main__":

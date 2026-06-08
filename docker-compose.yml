@@ -10,8 +10,20 @@ services:
       - hf_cache:/home/app/.cache/huggingface
     ports:
       - "8001:8001"
+    environment:
+      AI_CLEAN_ENABLED: "true"
+      AI_CLEAN_PROVIDER: "ollama"
+      AI_CLEAN_BASE_URL: "http://host.docker.internal:11434"
+      AI_CLEAN_MODEL: "qwen3.5:9b"
+      AI_CLEAN_TIMEOUT_SECONDS: "300"
+      AI_CLEAN_TEMPERATURE: "0"
+      AI_CLEAN_NUM_PREDICT: "2048"
+      AI_CLEAN_FORMAT_JSON: "true"
+      AI_CLEAN_THINK: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)\""]
+      test: [ "CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)\"" ]
       interval: 15s
       timeout: 5s
       retries: 80

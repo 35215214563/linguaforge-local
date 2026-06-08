@@ -175,14 +175,14 @@ def clear_output() -> dict[str, Union[int, str]]:
 
 @app.post("/transcribe")
 async def transcribe(
-    request: Request,
-    file: UploadFile = File(...),
-    language: str = Form("auto"),
-    save_output: bool = Form(True),
-    mixed_ranges: str = Form(""),
-    mixed_ranges_custom: bool = Form(False),
-    mixed_ranges_default_language: str = Form(""),
-    professional_optimization: bool = Form(False),
+        request: Request,
+        file: UploadFile = File(...),
+        language: str = Form("auto"),
+        save_output: bool = Form(True),
+        mixed_ranges: str = Form(""),
+        mixed_ranges_custom: bool = Form(False),
+        mixed_ranges_default_language: str = Form(""),
+        professional_optimization: bool = Form(False),
 ) -> Response:
     check_rate_limit(get_client_key(request))
 
@@ -208,9 +208,9 @@ async def transcribe(
         validate_audio_header(header)
 
         with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-            dir=AUDIO_DIR,
+                delete=False,
+                suffix=suffix,
+                dir=AUDIO_DIR,
         ) as temp_file:
             temp_path = Path(temp_file.name)
             bytes_written = len(header)
@@ -289,14 +289,14 @@ async def transcribe(
 
 @app.post("/transcribe-job")
 async def create_transcription_job(
-    request: Request,
-    file: UploadFile = File(...),
-    language: str = Form("auto"),
-    save_output: bool = Form(True),
-    mixed_ranges: str = Form(""),
-    mixed_ranges_custom: bool = Form(False),
-    mixed_ranges_default_language: str = Form(""),
-    professional_optimization: bool = Form(False),
+        request: Request,
+        file: UploadFile = File(...),
+        language: str = Form("auto"),
+        save_output: bool = Form(True),
+        mixed_ranges: str = Form(""),
+        mixed_ranges_custom: bool = Form(False),
+        mixed_ranges_default_language: str = Form(""),
+        professional_optimization: bool = Form(False),
 ) -> dict[str, str]:
     cleanup_old_jobs()
     check_rate_limit(get_client_key(request))
@@ -322,9 +322,9 @@ async def create_transcription_job(
         validate_audio_header(header)
 
         with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-            dir=AUDIO_DIR,
+                delete=False,
+                suffix=suffix,
+                dir=AUDIO_DIR,
         ) as temp_file:
             temp_path = Path(temp_file.name)
             bytes_written = len(header)
@@ -503,6 +503,14 @@ def ai_clean_srt(http_request: Request, request: AICleanSRTRequest) -> dict[str,
             "changes": rule_result.changes,
             "ai_used": False,
             "fallback_reason": "AI Clean SRT failed unexpectedly; returned rule-based clean SRT.",
+            "metrics": {
+                "rule_based_ms": None,
+                "ai_call_ms": None,
+                "validation_ms": None,
+                "total_ms": None,
+                "model": None,
+                "provider": None,
+            },
         }
 
     return {
@@ -511,6 +519,7 @@ def ai_clean_srt(http_request: Request, request: AICleanSRTRequest) -> dict[str,
         "changes": result.changes,
         "ai_used": result.ai_used,
         "fallback_reason": result.fallback_reason,
+        "metrics": result.metrics,
     }
 
 
@@ -601,9 +610,9 @@ def fetch_remote_model_revision(repo_id: str, revision: str = "main") -> str:
 
 
 def parse_mixed_ranges(
-    raw_ranges: str,
-    custom_languages: bool = False,
-    default_language: str = "",
+        raw_ranges: str,
+        custom_languages: bool = False,
+        default_language: str = "",
 ) -> list[tuple[float, float, str]]:
     normalized_default_language = normalize_mixed_ranges_default_language(
         default_language,
@@ -912,9 +921,9 @@ async def release_transcription_slot() -> None:
 
 
 def defer_future_cleanup(
-    future: Future[str],
-    temp_path: Optional[Path],
-    release_slot: bool,
+        future: Future[str],
+        temp_path: Optional[Path],
+        release_slot: bool,
 ) -> None:
     loop = asyncio.get_running_loop()
 
@@ -934,12 +943,12 @@ def defer_future_cleanup(
 
 
 def finish_transcription_job(
-    loop: asyncio.AbstractEventLoop,
-    job_id: str,
-    future: Future[str],
-    temp_path: Optional[Path],
-    original_filename: Optional[str],
-    save_output: bool,
+        loop: asyncio.AbstractEventLoop,
+        job_id: str,
+        future: Future[str],
+        temp_path: Optional[Path],
+        original_filename: Optional[str],
+        save_output: bool,
 ) -> None:
     try:
         srt_text = future.result()

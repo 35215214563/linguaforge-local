@@ -19,6 +19,9 @@ class AICleanClientConfig:
     model: str
     timeout_seconds: float
     temperature: float
+    num_predict: int
+    format_json: bool
+    think: bool
 
 
 class AICleanClient(Protocol):

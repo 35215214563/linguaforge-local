@@ -42,6 +42,10 @@ def ai_response(items: list[dict[str, object]]) -> str:
     return json.dumps(items, ensure_ascii=False)
 
 
+def ai_items_response(items: list[dict[str, object]]) -> str:
+    return json.dumps({"items": items}, ensure_ascii=False)
+
+
 @unittest.skipIf(TestClient is None, f"FastAPI TestClient unavailable: {TESTCLIENT_IMPORT_ERROR}")
 class AICleanSRTAPITests(unittest.TestCase):
     @classmethod
@@ -91,7 +95,34 @@ class AICleanSRTAPITests(unittest.TestCase):
         self.assertIsNone(payload["fallback_reason"])
         self.assertIn("问答对练。", payload["ai_clean_srt"])
         self.assertIn("rule_based_srt", payload)
+        self.assertIn("metrics", payload)
+        self.assertEqual(payload["metrics"]["model"], "test-model")
+        self.assertEqual(payload["metrics"]["provider"], "ollama")
+        self.assertIn("ai_call_ms", payload["metrics"])
         self.assertTrue(any(change["type"] == "ai_text_correction" for change in payload["changes"]))
+
+    def test_ai_clean_endpoint_accepts_items_object_response(self):
+        self.install_ai_cleaner(
+            FakeAICleanClient(
+                ai_items_response(
+                    [
+                        {"index": 1, "clean_text": "问答对练。"},
+                        {"index": 2, "clean_text": "过去式还是现在式？"},
+                    ]
+                )
+            )
+        )
+
+        response = self.client.post(
+            "/srt/ai-clean",
+            json={"language": "zh", "srt_text": RAW_SRT},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ai_used"])
+        self.assertIn("问答对练。", payload["ai_clean_srt"])
+        self.assertIn("过去式还是现在式？", payload["ai_clean_srt"])
 
     def test_ai_clean_endpoint_preserves_indices_and_timing(self):
         self.install_ai_cleaner(
@@ -194,6 +225,10 @@ class AICleanSRTAPITests(unittest.TestCase):
         self.assertFalse(payload["ai_used"])
         self.assertEqual(payload["ai_clean_srt"], payload["rule_based_srt"])
         self.assertIn("unavailable", payload["fallback_reason"])
+        self.assertIn("metrics", payload)
+        self.assertEqual(payload["metrics"]["model"], "test-model")
+        self.assertEqual(payload["metrics"]["provider"], "ollama")
+        self.assertIn("ai_call_ms", payload["metrics"])
 
 
 if __name__ == "__main__":

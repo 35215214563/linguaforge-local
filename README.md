@@ -302,7 +302,10 @@ Strict Validation
 AI Clean Text SRT
 ```
 
-AI 只是一個字幕文字校正引擎，不是字幕編輯器。後端只會把每個 subtitle block 的 `index` 和文字送給 AI，不送完整 SRT 時間軸，也要求 AI 回傳 JSON array，不允許回傳 SRT。驗證層會拒絕 invalid JSON、錯誤 block 數量、錯誤 index、timestamp、markdown code fence、疑似完整 SRT、過長或過短的文字。
+AI 只是一個字幕文字校正引擎，不是字幕編輯器。後端只會把每個 subtitle block 的 `index` 和文字送給 AI，不送完整 SRT 時間軸，也要求 AI 回傳 JSON object with `items` array；驗證也保留相容 top-level JSON array。不允許 AI 回傳 SRT。驗證層會拒絕 invalid JSON、錯誤 block 數量、錯誤 index、timestamp、markdown code fence、疑似完整 SRT、過長或過短的文字，以及改動阿拉伯數字 token 的 block。
+Ollama provider 會使用 non-streaming JSON mode、generation length limit，並預設關閉支援模型的 thinking output；如果模型仍輸出 `Thought for`、`Thinking Process`、`<think>` 等 reasoning marker，AI output 會被拒絕並安全回退。
+
+AI Clean Text 有一個受控 hint dictionary：`backend/subtitle_corrections/ai_clean_hints.json`。hints 只是 advisory，不是 mandatory replacements；它們不會取代 rule-based cleaner，也不會直接改字幕。prompt 只注入目前 subtitle blocks 相關的 correction hints，例如 `wrong` 文字真的出現在當前 blocks 時才加入，不會把整份 dictionary 塞進每次 prompt。protected terms 只在字幕中出現或和已選 hint 相關時加入。numeric rules 會作為 hard rules 放入 prompt，但真正強制的是 validation guard：AI 如果把 `10` 改成 `十` 或全形數字，該 block 會回退到 rule-based text。
 
 輸入：
 
@@ -332,7 +335,15 @@ AI 使用成功時回傳：
     }
   ],
   "ai_used": true,
-  "fallback_reason": null
+  "fallback_reason": null,
+  "metrics": {
+    "rule_based_ms": 4.2,
+    "ai_call_ms": 812.5,
+    "validation_ms": 0.4,
+    "total_ms": 817.6,
+    "model": "qwen3:8b",
+    "provider": "ollama"
+  }
 }
 ```
 
@@ -344,7 +355,15 @@ AI 使用成功時回傳：
   "rule_based_srt": "<rule-based clean srt>",
   "changes": [],
   "ai_used": false,
-  "fallback_reason": "AI clean disabled by environment."
+  "fallback_reason": "AI clean disabled by environment.",
+  "metrics": {
+    "rule_based_ms": 4.2,
+    "ai_call_ms": 0,
+    "validation_ms": 0,
+    "total_ms": 4.5,
+    "model": "qwen3:8b",
+    "provider": "ollama"
+  }
 }
 ```
 
@@ -359,6 +378,9 @@ AI_CLEAN_BASE_URL=http://localhost:11434
 AI_CLEAN_MODEL=qwen3:8b
 AI_CLEAN_TIMEOUT_SECONDS=120
 AI_CLEAN_TEMPERATURE=0
+AI_CLEAN_NUM_PREDICT=2048
+AI_CLEAN_FORMAT_JSON=true
+AI_CLEAN_THINK=false
 ```
 
 預設 provider 是 `ollama`，預設 model 是 `qwen3:8b`。model name 只是一個 config value；endpoint logic 不綁定任何特定模型。要切換模型只需改環境變數，例如：
@@ -368,6 +390,8 @@ AI_CLEAN_MODEL=qwen3:14b
 AI_CLEAN_MODEL=qwen3:32b
 AI_CLEAN_MODEL=another-local-model
 ```
+
+`AI_CLEAN_NUM_PREDICT` 控制最大 generation length，避免 AI Clean Text 產生過長回覆。`AI_CLEAN_FORMAT_JSON=true` 會要求 Ollama 使用 JSON output format。`AI_CLEAN_THINK=false` 會在支援的 Ollama models 上關閉 thinking output。回傳的 `metrics` 可用來診斷慢速 AI call，特別是 `ai_call_ms`、`model` 和 `provider`。
 
 AI client 透過 `backend/ai_clients/base.py` 抽象，provider-specific HTTP logic 放在 `backend/ai_clients/ollama_client.py`，`backend/main.py` 只呼叫 `AICleaner` service。AI server 是 optional；沒有 Ollama 或 model 時，API 會回退到 rule-based clean。測試使用 fake AI client，不需要真實 Ollama server、不需要 internet，也不新增重型模型 dependency。
 

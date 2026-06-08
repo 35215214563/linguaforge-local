@@ -1,220 +1,252 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LinguaForge Local - Multilingual SRT Generator</title>
-<link rel="stylesheet" href="css/style.css?v=20260607-0025">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinguaForge Local - Multilingual SRT Generator</title>
+    <link rel="stylesheet" href="css/style.css?v=20260607-0025">
 </head>
 <body>
 <div class="wrap">
 
-  <div class="badge">LinguaForge Local · FastAPI</div>
-  <h1>LinguaForge<em> SRT</em></h1>
-  <div class="sub">// Multilingual local SRT generator for YouTube, video editors, and subtitle workflows</div>
-  <div class="model-status-panel model-status-header">
-    <button class="btn btn-secondary" id="checkModelBtn" type="button">檢查模型版本</button>
-    <div class="model-status-text" id="modelStatus">尚未檢查模型版本</div>
-  </div>
-
-  <div class="warn-box" id="fileWarn">
-    你現在似乎是用 file:// 直接打開 HTML。建議用本機伺服器打開：<br>
-    <strong>python3 -m http.server 8000</strong><br>
-    然後開啟 <strong>http://localhost:8000/srt.html</strong>
-  </div>
-
-  <div class="card">
-    <div class="clabel">▸ 01 / Upload Audio</div>
-    <div class="drop-zone" id="dropZone">
-      <input
-        type="file"
-        id="fileInput"
-        accept=".mp3,.m4a,.wav,.flac,.aac,.ogg,.oga,.opus,.webm,.mp4,audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/wav,audio/x-wav,audio/flac,audio/aac,audio/ogg,audio/opus,video/mp4,video/webm"
-      >
-      <div class="drop-icon">♪</div>
-      <div class="drop-title">拖曳音訊檔案至此，或點擊選擇</div>
-      <div class="drop-hint">支援 MP3、M4A、WAV、FLAC...</div>
-      <div class="drop-name" id="dropName"></div>
-    </div>
-    <audio id="audioPreview" controls style="display:none;"></audio>
-  </div>
-
-  <div class="card">
-    <div class="clabel">▸ 02 / Language</div>
-    <div class="language-grid">
-      <label class="model-opt selected" data-language="auto">
-        <input type="radio" name="language" value="auto" checked>
-        <div class="mo-tag tag-rec">Default</div>
-        <div class="mo-name">Auto detect</div>
-        <div class="mo-note">讓 faster-whisper 自動判斷語言</div>
-      </label>
-
-      <label class="model-opt" data-language="mixed">
-        <input type="radio" name="language" value="mixed">
-        <div class="mo-tag tag-rec">Mixed</div>
-        <div class="mo-name">Mixed multilingual</div>
-        <div class="mo-note">適合多語言混合音檔</div>
-      </label>
-
-      <label class="model-opt" data-language="ko">
-        <input type="radio" name="language" value="ko">
-        <div class="mo-tag tag-best">Korean</div>
-        <div class="mo-name">Korean</div>
-        <div class="mo-note">language = ko</div>
-      </label>
-
-      <label class="model-opt" data-language="ja">
-        <input type="radio" name="language" value="ja">
-        <div class="mo-tag tag-best">Japanese</div>
-        <div class="mo-name">Japanese</div>
-        <div class="mo-note">language = ja</div>
-      </label>
-
-      <label class="model-opt" data-language="vi">
-        <input type="radio" name="language" value="vi">
-        <div class="mo-tag tag-best">Vietnamese</div>
-        <div class="mo-name">Vietnamese</div>
-        <div class="mo-note">language = vi</div>
-      </label>
-
-      <label class="model-opt" data-language="zh">
-        <input type="radio" name="language" value="zh">
-        <div class="mo-tag tag-best">Chinese</div>
-        <div class="mo-name">Chinese</div>
-        <div class="mo-note">language = zh</div>
-      </label>
-
-      <label class="model-opt" data-language="en">
-        <input type="radio" name="language" value="en">
-        <div class="mo-tag tag-best">English</div>
-        <div class="mo-name">English</div>
-        <div class="mo-note">language = en</div>
-      </label>
+    <div class="badge">LinguaForge Local · FastAPI</div>
+    <h1>LinguaForge<em> SRT</em></h1>
+    <div class="sub">// Multilingual local SRT generator for YouTube, video editors, and subtitle workflows</div>
+    <div class="model-status-panel model-status-header">
+        <button class="btn btn-secondary" id="checkModelBtn" type="button">檢查模型版本</button>
+        <div class="model-status-text" id="modelStatus">尚未檢查模型版本</div>
     </div>
 
-    <div class="range-toggle-group">
-      <label class="save-row range-toggle-row">
-        <input type="checkbox" id="useMixedRanges">
-        <span>指定混合 / 例外語言時間段：其餘時間使用上方選擇的主要語言</span>
-      </label>
-      <label class="save-row range-custom-row">
-        <input type="checkbox" id="customRangeLanguages" disabled>
-        <span>自定義每段語言</span>
-      </label>
+    <div class="warn-box" id="fileWarn">
+        你現在似乎是用 file:// 直接打開 HTML。建議用本機伺服器打開：<br>
+        <strong>python3 -m http.server 8000</strong><br>
+        然後開啟 <strong>http://localhost:8000/srt.html</strong>
     </div>
-    <div class="range-panel" id="mixedRangePanel">
-      <div class="default-language-panel" id="defaultExceptionLanguagePanel" hidden>
-        <div class="range-default-title">預設例外語言（可選，只能選一個）</div>
-        <div class="exception-language-grid" role="radiogroup" aria-label="預設例外語言">
-          <label class="exception-language-opt selected">
-            <input type="radio" name="defaultExceptionLanguage" value="" checked>
-            <span>每行指定</span>
-          </label>
-          <label class="exception-language-opt">
-            <input type="radio" name="defaultExceptionLanguage" value="ja">
-            <span>Japanese</span>
-          </label>
-          <label class="exception-language-opt">
-            <input type="radio" name="defaultExceptionLanguage" value="ko">
-            <span>Korean</span>
-          </label>
-          <label class="exception-language-opt">
-            <input type="radio" name="defaultExceptionLanguage" value="en">
-            <span>English</span>
-          </label>
-          <label class="exception-language-opt">
-            <input type="radio" name="defaultExceptionLanguage" value="zh">
-            <span>Chinese</span>
-          </label>
-          <label class="exception-language-opt">
-            <input type="radio" name="defaultExceptionLanguage" value="vi">
-            <span>Vietnamese</span>
-          </label>
-          <label class="exception-language-opt">
-            <input type="radio" name="defaultExceptionLanguage" value="mixed">
-            <span>Mixed</span>
-          </label>
-          <label class="exception-language-opt">
-            <input type="radio" name="defaultExceptionLanguage" value="auto">
-            <span>Auto</span>
-          </label>
+
+    <div class="card">
+        <div class="clabel">▸ 01 / Upload Audio</div>
+        <div class="drop-zone" id="dropZone">
+            <input
+                    type="file"
+                    id="fileInput"
+                    accept=".mp3,.m4a,.wav,.flac,.aac,.ogg,.oga,.opus,.webm,.mp4,audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/wav,audio/x-wav,audio/flac,audio/aac,audio/ogg,audio/opus,video/mp4,video/webm"
+            >
+            <div class="drop-icon">♪</div>
+            <div class="drop-title">拖曳音訊檔案至此，或點擊選擇</div>
+            <div class="drop-hint">支援 MP3、M4A、WAV、FLAC...</div>
+            <div class="drop-name" id="dropName"></div>
         </div>
-        <div class="range-hint">選了預設語言後，下面每行只需要輸入時間段；保持「每行指定」時，每行要寫「時間段 語言碼」。</div>
-      </div>
-      <textarea
-        id="mixedRanges"
-        rows="3"
-        placeholder="例如：0-8&#10;8-01:12&#10;01:12-00:01:20&#10;00:00:00,000 --> 00:00:03,000"
-        spellcheck="false"
-      ></textarea>
-      <div class="range-hint" id="rangeHint">未勾自定義：每行只輸入時間段，這些區間會用 mixed 逐段偵測。
-格式例子：0-8 = 0秒到8秒；8-01:12 = 8秒到1分12秒；01:12-00:01:20 = 1分12秒到1分20秒；00:00:00,000 --> 00:00:03,000 = 標準 SRT 時間。</div>
+        <audio id="audioPreview" controls style="display:none;"></audio>
     </div>
 
-    <label class="save-row">
-      <input type="checkbox" id="professionalOptimization">
-      <span>專業字幕優化：使用 word timestamps 重新切分字幕，改善短段過碎、閱讀速度、重疊時間與教材格式</span>
-    </label>
+    <div class="card">
+        <div class="clabel">▸ 02 / Language</div>
+        <div class="language-grid">
+            <label class="model-opt selected" data-language="auto">
+                <input type="radio" name="language" value="auto" checked>
+                <div class="mo-tag tag-rec">Default</div>
+                <div class="mo-name">Auto detect</div>
+                <div class="mo-note">讓 faster-whisper 自動判斷語言</div>
+            </label>
 
-    <label class="save-row">
-      <input type="checkbox" id="saveOutput" checked>
-      <span>save_output=true：後端同時把 .srt 存到 output/</span>
-    </label>
+            <label class="model-opt" data-language="mixed">
+                <input type="radio" name="language" value="mixed">
+                <div class="mo-tag tag-rec">Mixed</div>
+                <div class="mo-name">Mixed multilingual</div>
+                <div class="mo-note">適合多語言混合音檔</div>
+            </label>
 
-    <div class="settings-actions">
-      <button class="btn btn-danger" id="clearOutputBtn" type="button">清空 output/</button>
+            <label class="model-opt" data-language="ko">
+                <input type="radio" name="language" value="ko">
+                <div class="mo-tag tag-best">Korean</div>
+                <div class="mo-name">Korean</div>
+                <div class="mo-note">language = ko</div>
+            </label>
+
+            <label class="model-opt" data-language="ja">
+                <input type="radio" name="language" value="ja">
+                <div class="mo-tag tag-best">Japanese</div>
+                <div class="mo-name">Japanese</div>
+                <div class="mo-note">language = ja</div>
+            </label>
+
+            <label class="model-opt" data-language="vi">
+                <input type="radio" name="language" value="vi">
+                <div class="mo-tag tag-best">Vietnamese</div>
+                <div class="mo-name">Vietnamese</div>
+                <div class="mo-note">language = vi</div>
+            </label>
+
+            <label class="model-opt" data-language="zh">
+                <input type="radio" name="language" value="zh">
+                <div class="mo-tag tag-best">Chinese</div>
+                <div class="mo-name">Chinese</div>
+                <div class="mo-note">language = zh</div>
+            </label>
+
+            <label class="model-opt" data-language="en">
+                <input type="radio" name="language" value="en">
+                <div class="mo-tag tag-best">English</div>
+                <div class="mo-name">English</div>
+                <div class="mo-note">language = en</div>
+            </label>
+        </div>
+
+        <div class="range-toggle-group">
+            <label class="save-row range-toggle-row">
+                <input type="checkbox" id="useMixedRanges">
+                <span>指定混合 / 例外語言時間段：其餘時間使用上方選擇的主要語言</span>
+            </label>
+            <label class="save-row range-custom-row">
+                <input type="checkbox" id="customRangeLanguages" disabled>
+                <span>自定義每段語言</span>
+            </label>
+        </div>
+        <div class="range-panel" id="mixedRangePanel">
+            <div class="default-language-panel" id="defaultExceptionLanguagePanel" hidden>
+                <div class="range-default-title">預設例外語言（可選，只能選一個）</div>
+                <div class="exception-language-grid" role="radiogroup" aria-label="預設例外語言">
+                    <label class="exception-language-opt selected">
+                        <input type="radio" name="defaultExceptionLanguage" value="" checked>
+                        <span>每行指定</span>
+                    </label>
+                    <label class="exception-language-opt">
+                        <input type="radio" name="defaultExceptionLanguage" value="ja">
+                        <span>Japanese</span>
+                    </label>
+                    <label class="exception-language-opt">
+                        <input type="radio" name="defaultExceptionLanguage" value="ko">
+                        <span>Korean</span>
+                    </label>
+                    <label class="exception-language-opt">
+                        <input type="radio" name="defaultExceptionLanguage" value="en">
+                        <span>English</span>
+                    </label>
+                    <label class="exception-language-opt">
+                        <input type="radio" name="defaultExceptionLanguage" value="zh">
+                        <span>Chinese</span>
+                    </label>
+                    <label class="exception-language-opt">
+                        <input type="radio" name="defaultExceptionLanguage" value="vi">
+                        <span>Vietnamese</span>
+                    </label>
+                    <label class="exception-language-opt">
+                        <input type="radio" name="defaultExceptionLanguage" value="mixed">
+                        <span>Mixed</span>
+                    </label>
+                    <label class="exception-language-opt">
+                        <input type="radio" name="defaultExceptionLanguage" value="auto">
+                        <span>Auto</span>
+                    </label>
+                </div>
+                <div class="range-hint">選了預設語言後，下面每行只需要輸入時間段；保持「每行指定」時，每行要寫「時間段
+                    語言碼」。
+                </div>
+            </div>
+            <textarea
+                    id="mixedRanges"
+                    rows="3"
+                    placeholder="例如：0-8&#10;8-01:12&#10;01:12-00:01:20&#10;00:00:00,000 --> 00:00:03,000"
+                    spellcheck="false"
+            ></textarea>
+            <div class="range-hint" id="rangeHint">未勾自定義：每行只輸入時間段，這些區間會用 mixed 逐段偵測。
+                格式例子：0-8 = 0秒到8秒；8-01:12 = 8秒到1分12秒；01:12-00:01:20 = 1分12秒到1分20秒；00:00:00,000 -->
+                00:00:03,000 = 標準 SRT 時間。
+            </div>
+        </div>
+
+        <label class="save-row">
+            <input type="checkbox" id="professionalOptimization">
+            <span>專業字幕優化：使用 word timestamps 重新切分字幕，改善短段過碎、閱讀速度、重疊時間與教材格式</span>
+        </label>
+
+        <label class="save-row">
+            <input type="checkbox" id="saveOutput" checked>
+            <span>save_output=true：後端同時把 .srt 存到 output/</span>
+        </label>
+
+        <div class="settings-actions">
+            <button class="btn btn-danger" id="clearOutputBtn" type="button">清空 output/</button>
+        </div>
+
+        <button class="btn btn-primary" id="transcribeBtn" disabled>
+            ▶ 開始轉錄
+        </button>
     </div>
 
-    <button class="btn btn-primary" id="transcribeBtn" disabled>
-      ▶ 開始轉錄
-    </button>
-  </div>
-
-  <div class="status-wrap">
-    <div class="status-bar" id="status">請先上傳音訊檔案</div>
-    <div class="prog-track" id="progTrack"><div class="prog-fill" id="progFill"></div></div>
-  </div>
-
-  <div class="output-section" id="outputSection">
-    <div class="card" style="margin-top:1.1rem">
-      <div class="clabel">▸ 03 / SRT Output
-        <span style="color:var(--teal);font-size:0.57rem;" id="srtOutputLabel">（Raw，可直接點選修改）</span>
-      </div>
-      <div class="srt-box" id="srtBox" contenteditable="true" spellcheck="false"></div>
+    <div class="status-wrap">
+        <div class="status-bar" id="status">請先上傳音訊檔案</div>
+        <div class="prog-track" id="progTrack">
+            <div class="prog-fill" id="progFill"></div>
+        </div>
     </div>
-    <div class="action-row">
-      <button class="btn btn-secondary" id="cleanSrtBtn" disabled>Clean SRT</button>
-      <button class="btn btn-secondary" id="aiCleanSrtBtn" disabled>AI Clean Text SRT</button>
-      <button class="btn btn-secondary" id="showRawBtn" disabled>Raw Preview</button>
-      <button class="btn btn-secondary" id="showCleanBtn" disabled>Clean Preview</button>
-      <button class="btn btn-secondary" id="showAiCleanBtn" disabled>AI Clean Preview</button>
-      <button class="btn btn-dl" id="downloadRawBtn">⬇ Download Raw SRT</button>
-      <button class="btn btn-dl" id="downloadCleanBtn" disabled>⬇ Download Clean SRT</button>
-      <button class="btn btn-dl" id="downloadAiCleanBtn" disabled>⬇ Download AI Clean SRT</button>
-      <button class="btn btn-cp" id="copyBtn">⎘ Copy Preview</button>
-    </div>
-  </div>
 
-  <div class="note">
-    <strong>使用說明</strong><br>
-    ※ 先上傳音訊，再選擇主要目標語言，例如 Korean / Japanese / Vietnamese / Chinese / English。<br>
-    ※ 一般單語音檔請直接選目標語言，不需要勾選「指定混合 / 例外語言時間段」。這樣通常最穩、也最快。<br>
-    ※ 如果音檔大部分是同一種語言，但某幾秒混入其他語言，請選主要語言後再勾選「指定混合 / 例外語言時間段」。<br>
-    ※ 未勾「自定義每段語言」時，每行只輸入時間段，例如 <strong>0-8</strong>、<strong>01:12-01:20</strong>、<strong>00:00:00,000 --> 00:00:03,000</strong>；這些區間會用 mixed 逐段偵測。<br>
-    ※ 勾選「自定義每段語言」且預設例外語言保持「每行指定」時，每行必須輸入 <strong>時間段 語言碼</strong>，例如 <strong>0-3 ja</strong>、<strong>12-18 mixed</strong>、<strong>00:00:00,000 --> 00:00:03,000 ja</strong>。<br>
-    ※ 如果所有例外時間段都是同一種語言，請在預設例外語言裡只選一個語言，例如 Japanese；下面就只需要輸入 <strong>0-3</strong>、<strong>12-18</strong>，不用重複寫 ja。<br>
-    ※ 時間格式支援 ss-ss、ss-mm:ss、mm:ss-mm:ss、mm:ss-hh:mm:ss、hh:mm:ss-hh:mm:ss、hh:mm:ss,mmm-hh:mm:ss,mmm、hh:mm:ss:mmm-hh:mm:ss:mmm，也支援標準 SRT 箭頭，例如 <strong>00:00:00,000 --> 00:00:03,000</strong>。<br>
-    ※ 使用冒號格式時，分鐘與秒數需小於 60；如果要寫第 90 秒，請直接寫 <strong>90</strong>，不要寫 <strong>01:90</strong>。<br>
-    ※ 語言碼支援 auto、mixed、ko、ja、vi、zh、en。<br>
-    ※ 如果整條音檔都頻繁混合多種語言，才選 Mixed multilingual；它會先用 VAD 切段，再逐段偵測語言與轉錄。<br>
-    ※ 「專業字幕優化」是可選模式；未勾選時會保持原本輸出。勾選後會啟用 faster-whisper <strong>word timestamps</strong>，用字級時間重新合成較完整的字幕段，並套用保守的 VAD 短段合併、前後 context padding、閱讀速度 / 最短時長 / 最大時長控制、短字幕合併、重疊時間修正，以及像 <strong>94%ページ → 94ページ</strong>、<strong>第 10 課 → 第10課</strong>、<strong>滾瓜爛薯 → 滾瓜爛熟</strong> 這類高置信度格式修正。這個模式通常品質較好，但可能稍微更慢。<br>
-    ※ Raw SRT 是後端轉錄直接產生的字幕；Clean SRT 是轉錄完成後按「Clean SRT」另外產生的 rule-based 清理版。AI Clean Text SRT 會先做 rule-based clean，再只針對每個字幕 block 的文字做 AI 修正；它不合併、不拆分、不改時間軸，也不修復跨 block 斷詞。<br>
-    ※ 「檢查模型版本」只會比較本地 cache 與 Hugging Face 遠端版本，不會下載或更新模型。<br>
-    ※ 前端只負責上傳音訊、顯示 SRT、下載與複製字幕。後端使用 <strong>FastAPI + faster-whisper large-v3</strong>，不使用 OpenAI paid API，也不需要 API key。<br>
-    ※ 第一次執行會下載模型；<strong>large-v3</strong> 在 CPU 上可能比較慢，目前預設 device=cpu、compute_type=int8。
-  </div>
+    <div class="output-section" id="outputSection">
+        <div class="card" style="margin-top:1.1rem">
+            <div class="clabel">▸ 03 / SRT Output
+                <span style="color:var(--teal);font-size:0.57rem;" id="srtOutputLabel">（Raw，可直接點選修改）</span>
+            </div>
+            <div class="srt-box" id="srtBox" contenteditable="true" spellcheck="false"></div>
+        </div>
+        <div class="action-flow">
+            <div class="action-flow-row">
+                <div class="action-flow-title">Raw SRT</div>
+                <button class="btn btn-secondary" id="showRawBtn" disabled>Preview Raw</button>
+                <button class="btn btn-dl" id="downloadRawBtn">⬇ Raw SRT</button>
+            </div>
+
+            <div class="action-flow-row">
+                <div class="action-flow-title">Clean SRT</div>
+                <button class="btn btn-secondary" id="cleanSrtBtn" disabled>Generate Clean</button>
+                <button class="btn btn-secondary" id="showCleanBtn" disabled>Preview Clean</button>
+                <button class="btn btn-dl" id="downloadCleanBtn" disabled>⬇ Clean SRT</button>
+            </div>
+
+            <div class="action-flow-row">
+                <div class="action-flow-title">AI Clean Text SRT</div>
+                <button class="btn btn-secondary" id="aiCleanSrtBtn" disabled>Generate AI Clean</button>
+                <button class="btn btn-secondary" id="showAiCleanBtn" disabled>Preview AI Clean</button>
+                <button class="btn btn-dl" id="downloadAiCleanBtn" disabled>⬇ AI Clean SRT</button>
+            </div>
+
+            <div class="action-flow-row">
+                <div class="action-flow-title">Current Preview</div>
+                <button class="btn btn-cp" id="copyBtn">⎘ Copy Current Preview</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="note">
+        <strong>使用說明</strong><br>
+        ※ 先上傳音訊，再選擇主要目標語言，例如 Korean / Japanese / Vietnamese / Chinese / English。<br>
+        ※ 一般單語音檔請直接選目標語言，不需要勾選「指定混合 / 例外語言時間段」。這樣通常最穩、也最快。<br>
+        ※ 如果音檔大部分是同一種語言，但某幾秒混入其他語言，請選主要語言後再勾選「指定混合 / 例外語言時間段」。<br>
+        ※ 未勾「自定義每段語言」時，每行只輸入時間段，例如 <strong>0-8</strong>、<strong>01:12-01:20</strong>、<strong>00:00:00,000
+        --> 00:00:03,000</strong>；這些區間會用 mixed 逐段偵測。<br>
+        ※ 勾選「自定義每段語言」且預設例外語言保持「每行指定」時，每行必須輸入 <strong>時間段 語言碼</strong>，例如 <strong>0-3
+        ja</strong>、<strong>12-18 mixed</strong>、<strong>00:00:00,000 --> 00:00:03,000 ja</strong>。<br>
+        ※ 如果所有例外時間段都是同一種語言，請在預設例外語言裡只選一個語言，例如 Japanese；下面就只需要輸入
+        <strong>0-3</strong>、<strong>12-18</strong>，不用重複寫 ja。<br>
+        ※ 時間格式支援
+        ss-ss、ss-mm:ss、mm:ss-mm:ss、mm:ss-hh:mm:ss、hh:mm:ss-hh:mm:ss、hh:mm:ss,mmm-hh:mm:ss,mmm、hh:mm:ss:mmm-hh:mm:ss:mmm，也支援標準
+        SRT 箭頭，例如 <strong>00:00:00,000 --> 00:00:03,000</strong>。<br>
+        ※ 使用冒號格式時，分鐘與秒數需小於 60；如果要寫第 90 秒，請直接寫 <strong>90</strong>，不要寫 <strong>01:90</strong>。<br>
+        ※ 語言碼支援 auto、mixed、ko、ja、vi、zh、en。<br>
+        ※ 如果整條音檔都頻繁混合多種語言，才選 Mixed multilingual；它會先用 VAD 切段，再逐段偵測語言與轉錄。<br>
+        ※ 「專業字幕優化」是可選模式；未勾選時會保持原本輸出。勾選後會啟用 faster-whisper <strong>word timestamps</strong>，用字級時間重新合成較完整的字幕段，並套用保守的
+        VAD 短段合併、前後 context padding、閱讀速度 / 最短時長 / 最大時長控制、短字幕合併、重疊時間修正，以及像 <strong>94%ページ
+        → 94ページ</strong>、<strong>第 10 課 → 第10課</strong>、<strong>滾瓜爛薯 → 滾瓜爛熟</strong>
+        這類高置信度格式修正。這個模式通常品質較好，但可能稍微更慢。<br>
+        ※ Raw SRT 是後端轉錄直接產生的字幕；Clean SRT 是轉錄完成後按「Clean SRT」另外產生的 rule-based 清理版。AI Clean Text
+        SRT 會先做 rule-based clean，再只針對每個字幕 block 的文字做 AI 修正；它不合併、不拆分、不改時間軸，也不修復跨 block
+        斷詞。<br>
+        ※ 「檢查模型版本」只會比較本地 cache 與 Hugging Face 遠端版本，不會下載或更新模型。<br>
+        ※ 前端只負責上傳音訊、顯示 SRT、下載與複製字幕。後端使用 <strong>FastAPI + faster-whisper large-v3</strong>，不使用
+        OpenAI paid API，也不需要 API key。<br>
+        ※ 第一次執行會下載模型；<strong>large-v3</strong> 在 CPU 上可能比較慢，目前預設 device=cpu、compute_type=int8。
+    </div>
 </div>
 
-<script src="js/app.js?v=20260608-0030"></script>
+<script src="js/app.js?v=20260609-aitime"></script>
 </body>
 </html>
