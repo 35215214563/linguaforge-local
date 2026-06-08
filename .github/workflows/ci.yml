@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
       - name: Compile backend
         run: python -m compileall backend
 
-      - name: Run unit tests
+      - name: Run unittest suite
         run: python -m unittest discover -s tests -v
 
       - name: Run pytest suite

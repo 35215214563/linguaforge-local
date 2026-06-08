@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from faster_whisper import WhisperModel
@@ -38,12 +40,14 @@ PRO_SOFT_CUT_SECONDS = 2.4
 PRO_TARGET_SPLIT_SECONDS = 5.5
 PRO_WORD_GAP_CUT_SECONDS = 1.2
 PRO_HARD_CUT_GRACE_CHARS = 8
+PROTECTED_PHRASES_FILE = Path(__file__).resolve().parent / "subtitle_corrections" / "protected_phrases.json"
 CJK_WRAP_BOUNDARY_CHARS = "、。，．！？!?；;：:,，"
 CJK_WRAP_PROHIBITED_START_CHARS = "、。，．！？!?…；;：:,，）」』】)]"
 CJK_WRAP_PROHIBITED_PREFIX_CHARS = "这那哪每各第"
 CJK_WRAP_PROHIBITED_SUFFIX_START_CHARS = "个些种样位条只本张件次天年月日点分秒字词课页人们的了着过学"
-PROTECTED_PHRASES = (
+DEFAULT_PROTECTED_PHRASES = (
     "深入探讨",
+    "深入探討",
     "神经科学",
     "神經科學",
     "核心机制",
@@ -68,6 +72,29 @@ PROTECTED_PHRASES = (
     "what I mean is",
     "Pattern Drill",
 )
+
+
+def load_protected_phrases(path: Path, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+
+    raw_phrases = payload.get("phrases", payload) if isinstance(payload, dict) else payload
+    if not isinstance(raw_phrases, list):
+        return fallback
+
+    phrases: list[str] = []
+    for phrase in raw_phrases:
+        if isinstance(phrase, str):
+            normalized = phrase.strip()
+            if normalized and normalized not in phrases:
+                phrases.append(normalized)
+
+    return tuple(phrases) if phrases else fallback
+
+
+PROTECTED_PHRASES = load_protected_phrases(PROTECTED_PHRASES_FILE, DEFAULT_PROTECTED_PHRASES)
 
 
 @dataclass

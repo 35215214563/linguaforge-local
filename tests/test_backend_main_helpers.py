@@ -9,6 +9,8 @@ import unittest
 from concurrent.futures import Future
 from pathlib import Path
 
+from backend.srt_parser import parse_srt
+
 
 def load_main_module():
     fake_multipart = types.ModuleType("multipart")
@@ -198,6 +200,34 @@ class BackendMainHelperTests(unittest.TestCase):
 
         self.assertIn("背得滚瓜烂熟 Pattern Drill", result["clean_srt"])
         self.assertTrue(result["changes"])
+
+    def test_clean_srt_endpoint_preserves_indices_and_timing(self):
+        raw_srt = """1
+00:00:00,000 --> 00:00:02,500
+背得滚瓜烂薯 PatternDrill
+
+2
+00:00:03,000 --> 00:00:05,250
+遇到完全没看过的生殖怎么办
+"""
+        http_request = types.SimpleNamespace(
+            headers={},
+            client=types.SimpleNamespace(host="clean-invariant-client"),
+        )
+        request = self.main.CleanSRTRequest(
+            srt_text=raw_srt,
+            language="zh",
+        )
+
+        result = self.main.clean_srt(http_request, request)
+
+        before_blocks = parse_srt(raw_srt)
+        after_blocks = parse_srt(str(result["clean_srt"]))
+        self.assertEqual(len(after_blocks), len(before_blocks))
+        self.assertEqual([block.index for block in after_blocks], [block.index for block in before_blocks])
+        self.assertEqual([block.start for block in after_blocks], [block.start for block in before_blocks])
+        self.assertEqual([block.end for block in after_blocks], [block.end for block in before_blocks])
+        self.assertIn("背得滚瓜烂熟 Pattern Drill", str(result["clean_srt"]))
 
     def test_clean_srt_endpoint_rejects_invalid_language(self):
         http_request = types.SimpleNamespace(

@@ -24,7 +24,8 @@ linguaforge-local/
 │     ├─ common_zh.json
 │     ├─ common_ja.json
 │     ├─ common_ko.json
-│     └─ language_learning_terms.json
+│     ├─ language_learning_terms.json
+│     └─ protected_phrases.json
 ├─ tests/
 │  ├─ test_api_clean_srt.py
 │  ├─ test_backend_main_helpers.py
@@ -38,7 +39,7 @@ linguaforge-local/
 │  └─ .gitkeep
 ├─ .github/
 │  └─ workflows/
-│     └─ tests.yml
+│     └─ ci.yml
 ├─ .dockerignore
 ├─ .gitignore
 ├─ docker-compose.yml

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from backend.srt_parser import parse_srt
 from test_backend_main_helpers import load_main_module
 
 try:
@@ -42,6 +43,37 @@ class CleanSRTAPITests(unittest.TestCase):
         payload = response.json()
         self.assertIn("记忆宫殿法 Pattern Drill", payload["clean_srt"])
         self.assertTrue(payload["changes"])
+
+    def test_clean_srt_endpoint_preserves_block_indices_and_timing(self):
+        raw_srt = """1
+00:00:00,000 --> 00:00:02,500
+背得滚瓜烂薯 PatternDrill
+
+2
+00:00:03,000 --> 00:00:05,250
+遇到完全没看过的生殖怎么办
+
+3
+00:00:05,500 --> 00:00:07,000
+Chat GPT
+"""
+
+        response = self.client.post(
+            "/srt/clean",
+            json={
+                "language": "zh",
+                "srt_text": raw_srt,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        before_blocks = parse_srt(raw_srt)
+        after_blocks = parse_srt(response.json()["clean_srt"])
+        self.assertEqual(len(after_blocks), len(before_blocks))
+        self.assertEqual([block.index for block in after_blocks], [block.index for block in before_blocks])
+        self.assertEqual([block.start for block in after_blocks], [block.start for block in before_blocks])
+        self.assertEqual([block.end for block in after_blocks], [block.end for block in before_blocks])
+        self.assertIn("背得滚瓜烂熟 Pattern Drill", response.json()["clean_srt"])
 
     def test_clean_srt_endpoint_rejects_invalid_language(self):
         response = self.client.post(
