@@ -107,19 +107,23 @@ class TranscriberHelperTests(unittest.TestCase):
 
     def test_normalize_subtitle_text_applies_high_confidence_vocabulary_fixes(self):
         self.assertEqual(
-            self.transcriber.normalize_subtitle_text("背得滚瓜烂薯"),
+            self.transcriber.normalize_subtitle_text("背得滚瓜烂薯", language="zh"),
             "背得滚瓜烂熟",
         )
         self.assertEqual(
-            self.transcriber.normalize_subtitle_text("遇到完全没看过的生殖怎么办"),
+            self.transcriber.normalize_subtitle_text("遇到完全没看过的生殖怎么办", language="zh"),
             "遇到完全没看过的生词怎么办",
         )
         self.assertEqual(
-            self.transcriber.normalize_subtitle_text("有一条铁砾让我印象深刻"),
+            self.transcriber.normalize_subtitle_text("有一条铁砾让我印象深刻", language="zh"),
             "有一条铁律让我印象深刻",
         )
 
     def test_normalize_subtitle_text_uses_requested_language_dictionary(self):
+        self.assertEqual(
+            self.transcriber.normalize_subtitle_text("背得滚瓜烂薯"),
+            "背得滚瓜烂薯",
+        )
         self.assertEqual(
             self.transcriber.normalize_subtitle_text("背得滚瓜烂薯", language="zh"),
             "背得滚瓜烂熟",
@@ -247,6 +251,96 @@ class TranscriberHelperTests(unittest.TestCase):
             self.transcriber.format_srt_time(3599.9995),
             self.transcriber.format_srt_time(3600.0),
         )
+
+    def test_professional_optimize_splits_long_chinese_blocks_on_soft_boundaries(self):
+        raw = """1
+00:00:00,000 --> 00:00:14,100
+想象一想,你读了十年的游泳手册,把那个换气、滑水姿势背得滚瓜烂薯,但却从来没有亲自跳进过水池里,这听起来太荒谬的对吧?
+"""
+
+        optimized = self.transcriber.optimize_srt_text(raw, language="zh")
+        blocks = self.transcriber.parse_srt_blocks(optimized)
+
+        self.assertGreaterEqual(len(blocks), 2)
+        self.assertTrue(all(block.end - block.start <= self.transcriber.PRO_MAX_BLOCK_SECONDS for block in blocks))
+        self.assertNotIn("滚瓜烂薯", optimized)
+        self.assertIn("滚瓜烂熟", optimized)
+        self.assertIn("？", optimized)
+        self.assertNotIn("把那个换气、\n\n", optimized)
+        self.assertIn("把那个换气、滑水姿势", optimized)
+
+    def test_professional_optimize_merges_back_to_back_fragments(self):
+        raw = """1
+00:04:33,000 --> 00:04:33,440
+没错
+
+2
+00:04:33,440 --> 00:04:34,900
+那为了适应这种
+
+3
+00:04:34,900 --> 00:04:36,280
+被打的真实压力
+
+4
+00:04:36,280 --> 00:04:37,720
+美国海军陆战队
+
+5
+00:04:37,720 --> 00:04:39,520
+还有一套压力免疫训练
+
+6
+00:04:39,520 --> 00:04:41,040
+现在我们其实可以
+
+7
+00:04:41,040 --> 00:04:42,340
+轻易复制这个环境
+
+8
+00:04:42,340 --> 00:04:43,720
+用AI对吧
+
+9
+00:04:43,720 --> 00:04:44,040
+对
+
+10
+00:04:44,040 --> 00:04:45,660
+直接把手机里的AI
+
+11
+00:04:45,660 --> 00:04:46,680
+像是Gemini
+
+12
+00:04:46,680 --> 00:04:47,920
+或者是ChatGPT
+
+13
+00:04:47,920 --> 00:04:49,640
+当作严格的教官
+
+14
+00:04:49,640 --> 00:04:51,960
+进行高压的问答对练
+
+15
+00:04:51,960 --> 00:04:53,600
+这里面有一条铁砾
+"""
+
+        optimized = self.transcriber.optimize_srt_text(raw, language="zh")
+        blocks = self.transcriber.parse_srt_blocks(optimized)
+
+        self.assertLess(len(blocks), 10)
+        self.assertIn("Gemini", optimized)
+        self.assertIn("ChatGPT", optimized)
+        self.assertIn("铁律", optimized)
+        self.assertNotIn("严\n格", optimized)
+        self.assertTrue(all(block.end - block.start <= self.transcriber.PRO_MAX_BLOCK_SECONDS for block in blocks))
+        self.assertTrue(all(len(block.text.strip()) > 1 for block in blocks))
 
 
 if __name__ == "__main__":

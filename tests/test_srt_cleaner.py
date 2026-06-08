@@ -32,7 +32,7 @@ class SRTCleanerTests(unittest.TestCase):
     def test_contextual_replacements_are_disabled_by_default(self):
         raw = """1
 00:00:00,000 --> 00:00:02,000
-這真的很有人眼
+外教官會對戀練習
 """
 
         default_result = self.cleaner.clean_rule_based(raw, language="zh")
@@ -42,8 +42,8 @@ class SRTCleanerTests(unittest.TestCase):
             enable_contextual_corrections=True,
         )
 
-        self.assertIn("很有人眼", default_result.clean_srt)
-        self.assertIn("很有吸引力", contextual_result.clean_srt)
+        self.assertIn("外教官會對戀練習", default_result.clean_srt)
+        self.assertIn("外交官會對練練習", contextual_result.clean_srt)
 
     def test_custom_terms_generate_compact_term_replacements(self):
         raw = """1
@@ -88,7 +88,14 @@ bad index
             parse_srt(raw)
 
     def test_transcriber_shared_text_cleanup_uses_external_dictionary(self):
-        self.assertEqual(clean_subtitle_text("记忆供电法和Chat GPT"), "记忆宫殿法和ChatGPT")
+        self.assertEqual(
+            clean_subtitle_text("记忆供电法和Chat GPT", language="zh"),
+            "记忆宫殿法和ChatGPT",
+        )
+        self.assertEqual(
+            clean_subtitle_text("记忆供电法和Chat GPT"),
+            "记忆供电法和ChatGPT",
+        )
 
     def test_cleaner_repairs_visual_line_wraps_before_replacements(self):
         raw = """1
@@ -156,17 +163,22 @@ think
         self.assertNotIn("第10課ですか？", ja_result.clean_srt)
         self.assertNotIn("몇 시부터 해요？", ko_result.clean_srt)
 
-    def test_auto_and_mixed_are_the_only_non_explicit_modes_using_chinese_dictionary(self):
+    def test_auto_and_mixed_do_not_apply_chinese_dictionary(self):
         raw = """1
 00:00:00,000 --> 00:00:02,000
-背得滚瓜烂薯
+背得滚瓜烂薯 PatternDrill
 """
 
-        for language in ("auto", "mixed", "zh"):
+        for language in ("auto", "mixed"):
             with self.subTest(language=language):
                 result = self.cleaner.clean_rule_based(raw, language=language)
 
-                self.assertIn("背得滚瓜烂熟", result.clean_srt)
+                self.assertIn("背得滚瓜烂薯", result.clean_srt)
+                self.assertIn("Pattern Drill", result.clean_srt)
+                self.assertNotIn("背得滚瓜烂熟", result.clean_srt)
+
+        zh_result = self.cleaner.clean_rule_based(raw, language="zh")
+        self.assertIn("背得滚瓜烂熟", zh_result.clean_srt)
 
     def test_long_non_chinese_clean_srt_does_not_apply_chinese_punctuation_or_vocabulary(self):
         raw = """1
@@ -194,6 +206,48 @@ This is a long English subtitle with whatImeanis and Ithink, but it should not r
         self.assertNotIn("확인해요？", ko_result.clean_srt)
         self.assertIn("what I mean is and I think", en_result.clean_srt)
         self.assertNotIn("滚瓜烂熟", ja_result.clean_srt + ko_result.clean_srt + en_result.clean_srt)
+
+    def test_auto_and_mixed_do_not_apply_chinese_punctuation_normalization(self):
+        raw = """1
+00:00:00,000 --> 00:00:02,000
+今天要練習嗎?
+"""
+
+        auto_result = self.cleaner.clean_rule_based(raw, language="auto")
+        mixed_result = self.cleaner.clean_rule_based(raw, language="mixed")
+        zh_result = self.cleaner.clean_rule_based(raw, language="zh")
+
+        self.assertIn("今天要練習嗎?", auto_result.clean_srt)
+        self.assertIn("今天要練習嗎?", mixed_result.clean_srt)
+        self.assertIn("今天要練習嗎？", zh_result.clean_srt)
+
+    def test_cleaner_repairs_language_learning_sample_errors(self):
+        raw = """1
+00:00:00,000 --> 00:00:04,000
+叫做70%懂,30%考材
+
+2
+00:00:04,100 --> 00:00:08,000
+放弃那种死机硬背吧, 单负数有没有加S了?
+
+3
+00:00:08,100 --> 00:00:12,000
+核心训练叫做巨型替换训练, 这种七手式很有人眼
+
+4
+00:00:12,100 --> 00:00:16,000
+李柔不断替换whatImeanis后面的词汇
+"""
+
+        result = self.cleaner.clean_rule_based(raw, language="zh")
+
+        self.assertIn("30%挑战", result.clean_srt)
+        self.assertIn("死记硬背", result.clean_srt)
+        self.assertIn("单复数", result.clean_srt)
+        self.assertIn("句型替换训练", result.clean_srt)
+        self.assertIn("起手式", result.clean_srt)
+        self.assertIn("很有吸引力", result.clean_srt)
+        self.assertIn("例如不断替换what I mean is后面的词汇", result.clean_srt)
 
 
 if __name__ == "__main__":

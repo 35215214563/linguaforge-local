@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Optional
@@ -34,12 +35,39 @@ PRO_LATIN_MAX_LINE_CHARS = 42
 PRO_CJK_MAX_CPS = 9.0
 PRO_LATIN_MAX_CPS = 17.0
 PRO_SOFT_CUT_SECONDS = 2.4
+PRO_TARGET_SPLIT_SECONDS = 5.5
 PRO_WORD_GAP_CUT_SECONDS = 1.2
 PRO_HARD_CUT_GRACE_CHARS = 8
 CJK_WRAP_BOUNDARY_CHARS = "、。，．！？!?；;：:,，"
 CJK_WRAP_PROHIBITED_START_CHARS = "、。，．！？!?…；;：:,，）」』】)]"
 CJK_WRAP_PROHIBITED_PREFIX_CHARS = "这那哪每各第"
 CJK_WRAP_PROHIBITED_SUFFIX_START_CHARS = "个些种样位条只本张件次天年月日点分秒字词课页人们的了着过学"
+PROTECTED_PHRASES = (
+    "深入探讨",
+    "神经科学",
+    "神經科學",
+    "核心机制",
+    "核心機制",
+    "空间路径",
+    "空間路徑",
+    "自动反击",
+    "自動反擊",
+    "十分钟对话",
+    "十分鐘對話",
+    "可理解性输入",
+    "可理解性輸入",
+    "记忆宫殿法",
+    "記憶宮殿法",
+    "句型替换训练",
+    "句型替換訓練",
+    "严格的教官",
+    "嚴格的教官",
+    "严格",
+    "嚴格",
+    "Honestly, I think",
+    "what I mean is",
+    "Pattern Drill",
+)
 
 
 @dataclass
@@ -860,8 +888,17 @@ def should_merge_subtitle_blocks(current: SubtitleBlock, next_block: SubtitleBlo
 
     current_duration = current.end - current.start
     next_duration = next_block.end - next_block.start
+    combined_duration = max(current.end, next_block.end) - current.start
     current_chars = len(re.sub(r"\s+", "", current.text))
     next_chars = len(re.sub(r"\s+", "", next_block.text))
+
+    if (
+        gap <= 0.25
+        and combined_duration <= PRO_MAX_BLOCK_SECONDS
+        and combined_chars <= max_chars_per_line(combined_text) * PRO_MAX_LINES_PER_BLOCK
+        and not is_sentence_end(current.text)
+    ):
+        return True
 
     if gap <= 0.35 and (
         current_duration < PRO_SHORT_SUBTITLE_SECONDS
@@ -884,10 +921,17 @@ def split_long_sentence_blocks(blocks: list[SubtitleBlock]) -> list[SubtitleBloc
 def split_long_sentence_block(block: SubtitleBlock) -> list[SubtitleBlock]:
     text = flatten_subtitle_text(block.text)
     duration = block.end - block.start
-    if duration < PRO_SPLIT_SUBTITLE_SECONDS:
+    char_count = count_reading_chars(text)
+    hard_char_limit = max_chars_per_line(text) * PRO_MAX_LINES_PER_BLOCK
+    if duration < PRO_SPLIT_SUBTITLE_SECONDS and char_count <= hard_char_limit:
         return [block]
 
-    parts = split_text_on_sentence_boundaries(text)
+    target_parts = max(
+        2,
+        math.ceil(duration / PRO_TARGET_SPLIT_SECONDS),
+        math.ceil(char_count / hard_char_limit) if hard_char_limit else 2,
+    )
+    parts = split_text_for_subtitle_blocks(text, target_parts)
     if len(parts) < 2:
         return [block]
 
@@ -918,8 +962,165 @@ def split_long_sentence_block(block: SubtitleBlock) -> list[SubtitleBlock]:
     return split_blocks
 
 
+def split_text_for_subtitle_blocks(text: str, target_parts: int) -> list[str]:
+    normalized = flatten_subtitle_text(text)
+    if target_parts <= 1:
+        return [normalized] if normalized else []
+
+    split_indices = choose_natural_text_split_indices(normalized, target_parts)
+    if not split_indices:
+        return split_text_on_sentence_boundaries(normalized)
+
+    parts: list[str] = []
+    previous = 0
+    for split_index in split_indices:
+        part = normalized[previous:split_index].strip()
+        if part:
+            parts.append(part)
+        previous = split_index
+
+    tail = normalized[previous:].strip()
+    if tail:
+        parts.append(tail)
+
+    return parts
+
+
+def choose_natural_text_split_indices(text: str, target_parts: int) -> list[int]:
+    total_chars = count_reading_chars(text)
+    if total_chars <= PRO_SPLIT_MIN_PART_CHARS * 2:
+        return []
+
+    candidates = natural_text_split_candidates(text)
+    split_indices: list[int] = []
+    previous_index = 0
+    previous_reading_count = 0
+
+    for part_number in range(1, target_parts):
+        desired_count = round(total_chars * part_number / target_parts)
+        remaining_parts = target_parts - part_number
+        candidate = choose_text_split_candidate(
+            text,
+            candidates,
+            desired_count,
+            previous_index,
+            previous_reading_count,
+            remaining_parts,
+            total_chars,
+        )
+        if candidate is None:
+            fallback_index = string_index_at_reading_count(text, desired_count)
+            candidate = find_fallback_text_split_index(text, fallback_index, previous_index)
+
+        if candidate is None or candidate <= previous_index or candidate >= len(text):
+            return split_indices
+
+        split_indices.append(candidate)
+        previous_index = candidate
+        previous_reading_count = count_reading_chars(text[:candidate])
+
+    return split_indices
+
+
+def natural_text_split_candidates(text: str) -> list[int]:
+    candidates: list[int] = []
+    for index, char in enumerate(text[:-1]):
+        if char not in CJK_WRAP_BOUNDARY_CHARS:
+            continue
+        split_index = adjust_protected_phrase_wrap_index(text, index + 1, index + 1)
+        if split_index <= 0 or split_index >= len(text):
+            continue
+        if split_index not in candidates:
+            candidates.append(split_index)
+
+    return candidates
+
+
+def choose_text_split_candidate(
+    text: str,
+    candidates: list[int],
+    desired_count: int,
+    previous_index: int,
+    previous_reading_count: int,
+    remaining_parts: int,
+    total_chars: int,
+) -> Optional[int]:
+    min_part_chars = max(PRO_SPLIT_MIN_PART_CHARS, 6 if contains_cjk(text) else 8)
+    usable_candidates: list[tuple[int, int]] = []
+    for candidate in candidates:
+        if candidate <= previous_index or candidate >= len(text):
+            continue
+        candidate_count = count_reading_chars(text[:candidate])
+        part_chars = candidate_count - previous_reading_count
+        remaining_chars = total_chars - candidate_count
+        if part_chars < min_part_chars:
+            continue
+        if remaining_parts > 0 and remaining_chars < min_part_chars * remaining_parts:
+            continue
+        usable_candidates.append((candidate, candidate_count))
+
+    if not usable_candidates:
+        return None
+
+    return min(
+        usable_candidates,
+        key=lambda item: (
+            abs(item[1] - desired_count) + text_split_candidate_penalty(text, item[0]),
+            abs(item[0] - previous_index),
+        ),
+    )[0]
+
+
+def text_split_candidate_penalty(text: str, candidate: int) -> int:
+    if candidate <= 0 or candidate > len(text):
+        return 0
+
+    previous_char = text[candidate - 1]
+    if previous_char == "、":
+        return 8
+    if previous_char in "。．！？!?":
+        return -3
+    if previous_char in "；;：:":
+        return -1
+    return 0
+
+
+def string_index_at_reading_count(text: str, target_count: int) -> int:
+    count = 0
+    for index, char in enumerate(text):
+        if char.isspace():
+            continue
+        count += 1
+        if count >= target_count:
+            return index + 1
+    return len(text)
+
+
+def find_fallback_text_split_index(text: str, target_index: int, previous_index: int) -> Optional[int]:
+    search_start = max(previous_index + PRO_SPLIT_MIN_PART_CHARS, target_index - 10)
+    search_end = min(len(text) - 1, target_index + 10)
+    candidates: list[int] = []
+
+    if contains_cjk(text):
+        adjusted = adjust_cjk_wrap_index(text, target_index)
+        if previous_index < adjusted < len(text):
+            candidates.append(adjusted)
+
+    left_space = text.rfind(" ", previous_index + 1, target_index)
+    right_space = text.find(" ", target_index, search_end)
+    for candidate in (left_space, right_space):
+        if candidate != -1 and search_start <= candidate <= search_end:
+            candidates.append(candidate)
+
+    candidates = [candidate for candidate in candidates if previous_index < candidate < len(text)]
+    if not candidates:
+        return None
+
+    return min(candidates, key=lambda candidate: abs(candidate - target_index))
+
+
 def split_text_on_sentence_boundaries(text: str) -> list[str]:
-    parts = re.split(r"(?<=[。．.!?！？])\s+", text)
+    parts = re.split(r"(?<=[。．.!?！？])\s*", text)
     return [part.strip() for part in parts if part.strip()]
 
 
@@ -1013,7 +1214,7 @@ def find_cjk_wrap_index(text: str, target: int) -> int:
     boundary_chars = CJK_WRAP_BOUNDARY_CHARS
     for index in range(search_end, search_start - 1, -1):
         if text[index - 1] in boundary_chars:
-            return index
+            return adjust_protected_phrase_wrap_index(text, index, target_position)
 
     return adjust_cjk_wrap_index(text, target_position)
 
@@ -1065,7 +1266,35 @@ def adjust_cjk_wrap_index(text: str, index: int) -> int:
         else:
             split_index = len(text)
 
+    split_index = adjust_protected_phrase_wrap_index(text, split_index, index)
+
     return split_index
+
+
+def adjust_protected_phrase_wrap_index(text: str, split_index: int, target_index: int) -> int:
+    protected_bounds = protected_phrase_bounds(text, split_index)
+    if protected_bounds:
+        phrase_start, phrase_end = protected_bounds
+        candidates = [
+            candidate
+            for candidate in (phrase_start, phrase_end)
+            if candidate >= 1 and candidate < len(text) - 1
+        ]
+        if candidates:
+            return min(candidates, key=lambda candidate: abs(candidate - target_index))
+
+    return split_index
+
+
+def protected_phrase_bounds(text: str, index: int) -> Optional[tuple[int, int]]:
+    for phrase in PROTECTED_PHRASES:
+        start = text.find(phrase)
+        while start != -1:
+            end = start + len(phrase)
+            if start < index < end:
+                return start, end
+            start = text.find(phrase, start + 1)
+    return None
 
 
 def ascii_phrase_bounds(text: str, index: int) -> Optional[tuple[int, int]]:

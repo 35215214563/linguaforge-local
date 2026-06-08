@@ -130,7 +130,7 @@ class SRTCleaner:
         normalized_language = (language or "auto").strip().lower()
         correction_files = ["language_learning_terms.json"]
 
-        if normalized_language in {"zh", "auto", "mixed"}:
+        if normalized_language == "zh":
             correction_files.insert(0, "common_zh.json")
         elif normalized_language in {"ja", "ko"}:
             correction_files.insert(0, f"common_{normalized_language}.json")
@@ -332,7 +332,7 @@ def apply_format_normalization(
 
 
 def should_normalize_chinese_punctuation(language: str) -> bool:
-    return (language or "auto").strip().lower() in {"zh", "auto", "mixed"}
+    return (language or "auto").strip().lower() == "zh"
 
 
 def normalize_cjk_punctuation(text: str) -> str:

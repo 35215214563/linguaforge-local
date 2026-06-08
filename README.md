@@ -26,16 +26,23 @@ linguaforge-local/
 │     ├─ common_ko.json
 │     └─ language_learning_terms.json
 ├─ tests/
+│  ├─ test_api_clean_srt.py
 │  ├─ test_backend_main_helpers.py
+│  ├─ test_srt_parser.py
 │  ├─ test_srt_cleaner.py
+│  ├─ test_subtitle_wrapping.py
 │  └─ test_transcriber_helpers.py
 ├─ audio/
 │  └─ .gitkeep
 ├─ output/
 │  └─ .gitkeep
+├─ .github/
+│  └─ workflows/
+│     └─ tests.yml
 ├─ .dockerignore
 ├─ .gitignore
 ├─ docker-compose.yml
+├─ requirements-dev.txt
 ├─ requirements.txt
 └─ README.md
 ```
@@ -87,6 +94,25 @@ python3 -m http.server 8000
 ## 6. API Docs
 
 [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs)
+
+## 測試
+
+一般本機驗證：
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall backend
+docker compose config
+```
+
+如需跑 interface tests 和 pytest：
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+GitHub Actions 會執行 backend compile、unittest、pytest，以及 `docker compose config`。
 
 ## Docker 啟動
 
@@ -193,7 +219,7 @@ docker compose down
 - 主要語言區段也會用較保守的 VAD 分段，避免長靜音前後的兩句話被塞進同一條字幕。
 - 如果模型仍把過長且含多個句子的字幕放在同一段，會按句號、問號、驚嘆號等句界保守拆分。
 - SRT 後處理會合併太短且相鄰的字幕、修正重疊時間，並盡量避免一個短詞被拆成兩條字幕。
-- 會套用少量高置信度教材與同音字修正，例如 `94%ページ` → `94ページ`、`第 10 課` → `第10課`、`滾瓜爛薯` → `滾瓜爛熟`、`沒看過的生殖` → `沒看過的生詞`。
+- 會套用少量高置信度教材與同音字修正，例如 `94%ページ` → `94ページ`、`第 10 課` → `第10課`。中文錯字表只會在主要語言明確選 `zh` 時套用，例如 `滾瓜爛薯` → `滾瓜爛熟`、`沒看過的生殖` → `沒看過的生詞`，避免 `auto` / `mixed` 誤傷日文、韓文或英文內容。
 
 未啟用時會保持原本轉錄流程與輸出。啟用後通常字幕品質較好，但可能稍微增加轉錄時間。
 
@@ -241,7 +267,7 @@ docker compose down
 
 Clean SRT 會檢查 SRT 編號、時間格式、`start < end`、空字幕 block 與 block 數量。如果清理後驗證失敗，API 會回傳原始 Raw SRT 作為 `clean_srt`，並在 `changes` 裡標記 `validation_fallback`，避免輸出壞掉的 SRT。
 
-目前外部詞表放在 `backend/subtitle_corrections/`：
+目前外部詞表放在 `backend/subtitle_corrections/`。`language=zh` 會套用 `common_zh.json`；`language=ja` / `ko` 會讀取對應預留詞表；`auto` / `mixed` 預設只套用通用術語 spacing，不套中文錯字表。
 
 - `safe_replacements`: 明顯 ASR 錯字，預設啟用。
 - `term_replacements`: 英文術語 spacing 或固定寫法，預設啟用。

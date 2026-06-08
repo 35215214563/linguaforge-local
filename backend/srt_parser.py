@@ -5,6 +5,17 @@ from dataclasses import dataclass
 
 
 SRT_TIME_PATTERN = re.compile(r"^(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})$")
+CJK_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+LINE_START_PUNCTUATION = "、。，．！？!?…；;：:,，"
+ASCII_WORD_SPLIT_PATTERN = re.compile(r"[A-Za-z]{2,}\n[A-Za-z]{2,}")
+DEFAULT_MIN_GAP_SECONDS = 0.084
+DEFAULT_MIN_DURATION_SECONDS = 0.5
+DEFAULT_MAX_DURATION_SECONDS = 10.0
+DEFAULT_MAX_CJK_LINE_CHARS = 24
+DEFAULT_MAX_LATIN_LINE_CHARS = 42
+DEFAULT_MAX_LINES = 2
+DEFAULT_MAX_CJK_CPS = 12.0
+DEFAULT_MAX_LATIN_CPS = 20.0
 
 
 class SRTValidationError(ValueError):
@@ -81,6 +92,99 @@ def validate_srt_blocks(blocks: list[SRTBlock]) -> None:
             raise SRTValidationError(f"Block {block.index} start time must be before end time")
         if not block.text.strip():
             raise SRTValidationError(f"Block {block.index} is empty")
+
+
+def validate_srt_quality(
+    blocks: list[SRTBlock],
+    *,
+    min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS,
+    min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS,
+    max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS,
+    max_cjk_line_chars: int = DEFAULT_MAX_CJK_LINE_CHARS,
+    max_latin_line_chars: int = DEFAULT_MAX_LATIN_LINE_CHARS,
+    max_lines: int = DEFAULT_MAX_LINES,
+    max_cjk_cps: float = DEFAULT_MAX_CJK_CPS,
+    max_latin_cps: float = DEFAULT_MAX_LATIN_CPS,
+) -> None:
+    validate_srt_blocks(blocks)
+    issues = collect_srt_quality_issues(
+        blocks,
+        min_gap_seconds=min_gap_seconds,
+        min_duration_seconds=min_duration_seconds,
+        max_duration_seconds=max_duration_seconds,
+        max_cjk_line_chars=max_cjk_line_chars,
+        max_latin_line_chars=max_latin_line_chars,
+        max_lines=max_lines,
+        max_cjk_cps=max_cjk_cps,
+        max_latin_cps=max_latin_cps,
+    )
+    if issues:
+        raise SRTValidationError(issues[0])
+
+
+def collect_srt_quality_issues(
+    blocks: list[SRTBlock],
+    *,
+    min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS,
+    min_duration_seconds: float = DEFAULT_MIN_DURATION_SECONDS,
+    max_duration_seconds: float = DEFAULT_MAX_DURATION_SECONDS,
+    max_cjk_line_chars: int = DEFAULT_MAX_CJK_LINE_CHARS,
+    max_latin_line_chars: int = DEFAULT_MAX_LATIN_LINE_CHARS,
+    max_lines: int = DEFAULT_MAX_LINES,
+    max_cjk_cps: float = DEFAULT_MAX_CJK_CPS,
+    max_latin_cps: float = DEFAULT_MAX_LATIN_CPS,
+) -> list[str]:
+    issues: list[str] = []
+    previous: SRTBlock | None = None
+
+    for block in blocks:
+        duration = block.end - block.start
+        if previous:
+            if block.start < previous.start:
+                issues.append(f"Block {block.index} starts before previous block")
+            if block.start < previous.end:
+                issues.append(f"Block {block.index} overlaps previous block")
+            elif block.start - previous.end < min_gap_seconds:
+                issues.append(f"Block {block.index} gap is shorter than {min_gap_seconds:.3f}s")
+
+        if duration < min_duration_seconds:
+            issues.append(f"Block {block.index} duration is shorter than {min_duration_seconds:.3f}s")
+        if duration > max_duration_seconds:
+            issues.append(f"Block {block.index} duration is longer than {max_duration_seconds:.3f}s")
+
+        text = block.text.strip()
+        reading_chars = count_reading_chars(text)
+        cps_limit = max_cjk_cps if contains_cjk(text) else max_latin_cps
+        if duration > 0 and reading_chars / duration > cps_limit:
+            issues.append(f"Block {block.index} reading speed is above {cps_limit:.1f} CPS")
+
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            issues.append(f"Block {block.index} has more than {max_lines} subtitle lines")
+        if ASCII_WORD_SPLIT_PATTERN.search(text):
+            issues.append(f"Block {block.index} splits an ASCII word across lines")
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped[0] in LINE_START_PUNCTUATION:
+                issues.append(f"Block {block.index} has punctuation at the start of a line")
+            line_limit = max_cjk_line_chars if contains_cjk(stripped) else max_latin_line_chars
+            if count_reading_chars(stripped) > line_limit:
+                issues.append(f"Block {block.index} line is longer than {line_limit} chars")
+
+        previous = block
+
+    return issues
+
+
+def contains_cjk(text: str) -> bool:
+    return bool(CJK_PATTERN.search(text))
+
+
+def count_reading_chars(text: str) -> int:
+    return len(re.sub(r"\s+", "", text))
 
 
 def serialize_srt(blocks: list[SRTBlock]) -> str:
