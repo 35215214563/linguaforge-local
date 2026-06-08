@@ -21,8 +21,10 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .srt_cleaner import SRTCleaner
 from .transcriber import SRTTranscriber
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -43,6 +45,7 @@ TRANSCRIPTION_TIMEOUT_SECONDS = 30 * 60
 STUCK_JOB_GRACE_SECONDS = 5 * 60
 JOB_TTL_SECONDS = 60 * 60
 MODEL_STATUS_TIMEOUT_SECONDS = 10
+MAX_CLEAN_SRT_CHARS = 2_000_000
 
 logger = logging.getLogger(__name__)
 rate_limit_hits: defaultdict[str, deque[float]] = defaultdict(deque)
@@ -84,6 +87,15 @@ transcriber = SRTTranscriber(
     device="cpu",
     compute_type="int8",
 )
+srt_cleaner = SRTCleaner()
+
+
+class CleanSRTRequest(BaseModel):
+    srt_text: str
+    language: str = "auto"
+    script: str = ""
+    enable_contextual_corrections: bool = False
+    custom_terms: list[str] = Field(default_factory=list)
 
 
 @app.middleware("http")
@@ -406,6 +418,43 @@ def get_transcription_job_srt(job_id: str) -> Response:
         media_type="text/plain; charset=utf-8",
     )
 
+
+@app.post("/srt/clean")
+def clean_srt(request: CleanSRTRequest) -> dict[str, object]:
+    if len(request.srt_text) > MAX_CLEAN_SRT_CHARS:
+        raise HTTPException(status_code=413, detail="SRT text too large")
+
+    normalized_language = request.language.strip().lower()
+    if normalized_language not in ALLOWED_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail="language must be one of: auto, mixed, ko, ja, vi, zh, en",
+        )
+
+    try:
+        result = srt_cleaner.clean_rule_based(
+            request.srt_text,
+            language=normalized_language,
+            script=request.script,
+            enable_contextual_corrections=request.enable_contextual_corrections,
+            custom_terms=request.custom_terms,
+        )
+    except Exception:
+        logger.exception("Clean SRT endpoint failed unexpectedly; returning raw SRT")
+        return {
+            "clean_srt": request.srt_text,
+            "changes": [
+                {
+                    "index": None,
+                    "before": "",
+                    "after": "",
+                    "type": "validation_fallback",
+                    "message": "Clean SRT failed unexpectedly; returned Raw SRT unchanged.",
+                }
+            ],
+        }
+
+    return {"clean_srt": result.clean_srt, "changes": result.changes}
 
 def make_srt_filename(original_filename: Optional[str]) -> str:
     stem = Path(original_filename or "transcription").stem or "transcription"

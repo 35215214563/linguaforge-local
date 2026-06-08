@@ -2,6 +2,7 @@ const API_BASE_URL = getApiBaseUrl();
 const JOB_API_URL = `${API_BASE_URL}/transcribe-job`;
 const CLEAR_OUTPUT_URL = `${API_BASE_URL}/output`;
 const MODEL_STATUS_URL = `${API_BASE_URL}/model-status`;
+const CLEAN_SRT_URL = `${API_BASE_URL}/srt/clean`;
 const ALLOWED_LANGUAGES = new Set(['auto', 'mixed', 'ko', 'ja', 'vi', 'zh', 'en']);
 const LANGUAGE_LABELS = {
   auto: 'Auto',
@@ -18,7 +19,9 @@ const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 let audioFile = null;
 let audioObjectUrl = null;
-let srtContent = '';
+let rawSrtContent = '';
+let cleanSrtContent = '';
+let currentSrtView = 'raw';
 let currentLanguage = 'auto';
 let abortController = null;
 let progressTimer = null;
@@ -55,7 +58,11 @@ $('transcribeBtn').addEventListener('click', () => {
 
   startTranscription();
 });
-$('downloadBtn').addEventListener('click', downloadSRT);
+$('cleanSrtBtn').addEventListener('click', cleanSRT);
+$('showRawBtn').addEventListener('click', () => showSrtView('raw'));
+$('showCleanBtn').addEventListener('click', () => showSrtView('clean'));
+$('downloadRawBtn').addEventListener('click', downloadRawSRT);
+$('downloadCleanBtn').addEventListener('click', downloadCleanSRT);
 $('copyBtn').addEventListener('click', copySRT);
 $('clearOutputBtn').addEventListener('click', clearOutputFolder);
 $('checkModelBtn').addEventListener('click', checkModelStatus);
@@ -153,7 +160,10 @@ function setFile(file) {
   $('transcribeBtn').disabled = false;
   $('outputSection').style.display = 'none';
   $('srtBox').textContent = '';
-  srtContent = '';
+  rawSrtContent = '';
+  cleanSrtContent = '';
+  currentSrtView = 'raw';
+  updateSrtActionButtons();
   setProgress(0);
   setStatus('已載入：' + file.name, 'active');
 }
@@ -170,7 +180,9 @@ function isAllowedAudioFile(file) {
 
 function clearFileState() {
   audioFile = null;
-  srtContent = '';
+  rawSrtContent = '';
+  cleanSrtContent = '';
+  currentSrtView = 'raw';
 
   if (audioObjectUrl) {
     URL.revokeObjectURL(audioObjectUrl);
@@ -190,6 +202,7 @@ function clearFileState() {
   $('transcribeBtn').disabled = true;
   $('outputSection').style.display = 'none';
   $('srtBox').textContent = '';
+  updateSrtActionButtons();
   setProgress(0);
 }
 
@@ -291,9 +304,11 @@ async function startTranscription() {
       abortController.signal,
     );
 
-    srtContent = srt;
-    $('srtBox').textContent = srtContent;
+    rawSrtContent = srt;
+    cleanSrtContent = '';
+    showSrtView('raw', { syncCurrent: false });
     $('outputSection').style.display = 'block';
+    updateSrtActionButtons();
     setProgress(100);
     setStatus(`轉錄完成，可以下載或複製 SRT。總計耗時：${formatElapsedTime(Date.now() - transcriptionStartedAt)}（含上傳、排隊與後端轉錄）。`, 'success');
   } catch (error) {
@@ -627,6 +642,58 @@ function parseJsonResponse(text) {
   }
 }
 
+async function cleanSRT() {
+  syncCurrentSrtFromBox();
+  if (!rawSrtContent.trim()) {
+    setStatus('目前沒有 Raw SRT 可以清理', 'error');
+    return;
+  }
+
+  const button = $('cleanSrtBtn');
+  button.disabled = true;
+  setStatus('正在生成 Clean SRT...', 'active');
+
+  try {
+    const response = await fetch(CLEAN_SRT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        srt_text: rawSrtContent,
+        language: currentLanguage,
+        script: '',
+        enable_contextual_corrections: false,
+        custom_terms: [],
+      }),
+    });
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(extractErrorMessage(text, response.status));
+    }
+
+    const payload = parseJsonResponse(text);
+    cleanSrtContent = payload.clean_srt || rawSrtContent;
+    showSrtView('clean', { syncCurrent: false });
+
+    const changes = Array.isArray(payload.changes) ? payload.changes : [];
+    const fallback = changes.some(change => change.type === 'validation_fallback');
+    const realChangeCount = changes.filter(change => change.type !== 'validation_fallback').length;
+    updateSrtActionButtons();
+
+    if (fallback) {
+      setStatus('Clean SRT 驗證失敗，已保留 Raw SRT 作為 Clean 結果。', 'warn');
+      return;
+    }
+
+    setStatus(`Clean SRT 已生成，套用 ${realChangeCount} 項 rule-based 清理。`, 'success');
+  } catch (error) {
+    setStatus('Clean SRT 失敗：' + error.message, 'error');
+  } finally {
+    button.disabled = false;
+    updateSrtActionButtons();
+  }
+}
+
 async function checkModelStatus() {
   const button = $('checkModelBtn');
   const status = $('modelStatus');
@@ -705,12 +772,56 @@ function createAbortError() {
   return error;
 }
 
-function getCurrentSRT() {
-  return $('srtBox').textContent || srtContent || '';
+function syncCurrentSrtFromBox() {
+  const text = $('srtBox').textContent || '';
+  if (currentSrtView === 'clean') {
+    cleanSrtContent = text;
+    return;
+  }
+
+  rawSrtContent = text;
 }
 
-function downloadSRT() {
-  const text = getCurrentSRT();
+function showSrtView(view, options = {}) {
+  if (options.syncCurrent !== false) {
+    syncCurrentSrtFromBox();
+  }
+
+  currentSrtView = view === 'clean' ? 'clean' : 'raw';
+  const isClean = currentSrtView === 'clean';
+  $('srtBox').textContent = isClean ? cleanSrtContent : rawSrtContent;
+  $('srtOutputLabel').textContent = isClean
+    ? '（Clean Preview，可直接點選修改）'
+    : '（Raw Preview，可直接點選修改）';
+  updateSrtActionButtons();
+}
+
+function updateSrtActionButtons() {
+  if (!$('showRawBtn')) return;
+
+  $('cleanSrtBtn').disabled = !rawSrtContent.trim();
+  $('showRawBtn').disabled = !rawSrtContent.trim() || currentSrtView === 'raw';
+  $('showCleanBtn').disabled = !cleanSrtContent.trim() || currentSrtView === 'clean';
+  $('downloadRawBtn').disabled = !rawSrtContent.trim();
+  $('downloadCleanBtn').disabled = !cleanSrtContent.trim();
+}
+
+function getCurrentSRT() {
+  syncCurrentSrtFromBox();
+  return currentSrtView === 'clean' ? cleanSrtContent : rawSrtContent;
+}
+
+function downloadRawSRT() {
+  syncCurrentSrtFromBox();
+  downloadSRTText(rawSrtContent, 'raw');
+}
+
+function downloadCleanSRT() {
+  syncCurrentSrtFromBox();
+  downloadSRTText(cleanSrtContent, 'clean');
+}
+
+function downloadSRTText(text, kind) {
   if (!text.trim()) {
     setStatus('目前沒有可下載的 SRT 內容', 'error');
     return;
@@ -724,7 +835,7 @@ function downloadSRT() {
   const link = document.createElement('a');
 
   link.href = url;
-  link.download = `${baseName}.srt`;
+  link.download = kind === 'clean' ? `${baseName}.clean.srt` : `${baseName}.srt`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

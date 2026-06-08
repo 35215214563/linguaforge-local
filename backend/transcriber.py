@@ -8,6 +8,8 @@ from faster_whisper import WhisperModel
 from faster_whisper.audio import decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
+from .srt_cleaner import clean_subtitle_text
+
 
 SAMPLE_RATE = 16000
 MIN_MIXED_SEGMENT_SECONDS = 0.35
@@ -21,10 +23,27 @@ PRO_MAX_MERGED_TEXT_CHARS = 50
 PRO_MAX_LINE_CHARS = 42
 PRO_SPLIT_SUBTITLE_SECONDS = 4.5
 PRO_SPLIT_MIN_PART_CHARS = 4
+PRO_MAX_LINES_PER_BLOCK = 2
+PRO_MAX_BLOCK_SECONDS = 7.0
+PRO_MIN_BLOCK_SECONDS = 1.0
+PRO_MIN_GAP_SECONDS = 0.084
+PRO_CJK_MAX_LINE_CHARS = 21
+PRO_LATIN_MAX_LINE_CHARS = 42
+PRO_CJK_MAX_CPS = 9.0
+PRO_LATIN_MAX_CPS = 17.0
+PRO_SOFT_CUT_SECONDS = 2.4
+PRO_WORD_GAP_CUT_SECONDS = 1.2
 
 
 @dataclass
 class SubtitleBlock:
+    start: float
+    end: float
+    text: str
+
+
+@dataclass
+class WordTiming:
     start: float
     end: float
     text: str
@@ -73,12 +92,17 @@ class SRTTranscriber:
             "condition_on_previous_text": False,
             "temperature": 0.0,
         }
+        if professional_optimization:
+            transcribe_kwargs["word_timestamps"] = True
 
         if language and language != "auto":
             transcribe_kwargs["language"] = language
 
         segments, _info = self.model.transcribe(audio_path, **transcribe_kwargs)
-        srt_text = segments_to_srt(segments)
+        srt_text = segments_to_srt(
+            segments,
+            professional_optimization=professional_optimization,
+        )
         return optimize_srt_text(srt_text) if professional_optimization else srt_text
 
     def _transcribe_mixed_to_srt(self, audio_path: str, professional_optimization: bool) -> str:
@@ -255,6 +279,8 @@ class SRTTranscriber:
             "condition_on_previous_text": False,
             "temperature": 0.0,
         }
+        if professional_optimization:
+            transcribe_kwargs["word_timestamps"] = True
         if language and language != "auto":
             transcribe_kwargs["language"] = language
 
@@ -265,6 +291,7 @@ class SRTTranscriber:
             offset=base_offset + (start_sample / SAMPLE_RATE),
             min_start=base_offset + (speech_start_sample / SAMPLE_RATE) if professional_optimization else None,
             max_end=base_offset + (speech_end_sample / SAMPLE_RATE) if professional_optimization else base_offset + (len(audio) / SAMPLE_RATE),
+            professional_optimization=professional_optimization,
         )
 
     def _append_mixed_audio_to_blocks(
@@ -287,17 +314,26 @@ class SRTTranscriber:
         )
 
         if not speech_timestamps:
-            segments, _info = self.model.transcribe(
-                audio,
-                task="transcribe",
-                beam_size=10,
-                vad_filter=False,
-                condition_on_previous_text=False,
-                temperature=[0.0, 0.2, 0.4],
-                multilingual=True,
-                language_detection_segments=1,
+            transcribe_kwargs = {
+                "task": "transcribe",
+                "beam_size": 10,
+                "vad_filter": False,
+                "condition_on_previous_text": False,
+                "temperature": [0.0, 0.2, 0.4],
+                "multilingual": True,
+                "language_detection_segments": 1,
+            }
+            if professional_optimization:
+                transcribe_kwargs["word_timestamps"] = True
+
+            segments, _info = self.model.transcribe(audio, **transcribe_kwargs)
+            append_segments_to_blocks(
+                blocks,
+                segments,
+                offset=offset,
+                max_end=offset + (len(audio) / SAMPLE_RATE),
+                professional_optimization=professional_optimization,
             )
-            append_segments_to_blocks(blocks, segments, offset=offset, max_end=offset + (len(audio) / SAMPLE_RATE))
             return
 
         if professional_optimization:
@@ -325,28 +361,36 @@ class SRTTranscriber:
             speech_end = end_sample / SAMPLE_RATE
             output_start = raw_start_sample / SAMPLE_RATE
             output_end = raw_end_sample / SAMPLE_RATE
-            segments, _info = self.model.transcribe(
-                chunk,
-                task="transcribe",
-                beam_size=10,
-                vad_filter=False,
-                condition_on_previous_text=False,
-                temperature=[0.0, 0.2, 0.4],
-                multilingual=True,
-                language_detection_segments=1,
-            )
+            transcribe_kwargs = {
+                "task": "transcribe",
+                "beam_size": 10,
+                "vad_filter": False,
+                "condition_on_previous_text": False,
+                "temperature": [0.0, 0.2, 0.4],
+                "multilingual": True,
+                "language_detection_segments": 1,
+            }
+            if professional_optimization:
+                transcribe_kwargs["word_timestamps"] = True
+
+            segments, _info = self.model.transcribe(chunk, **transcribe_kwargs)
             append_segments_to_blocks(
                 blocks,
                 segments,
                 offset=base_offset + speech_start,
                 min_start=base_offset + output_start if professional_optimization else None,
                 max_end=base_offset + (output_end if professional_optimization else speech_end),
+                professional_optimization=professional_optimization,
             )
 
 
-def segments_to_srt(segments) -> str:
+def segments_to_srt(segments, professional_optimization: bool = False) -> str:
     blocks: list[str] = []
-    append_segments_to_blocks(blocks, segments)
+    append_segments_to_blocks(
+        blocks,
+        segments,
+        professional_optimization=professional_optimization,
+    )
     return "\n\n".join(blocks) + ("\n" if blocks else "")
 
 
@@ -356,7 +400,18 @@ def append_segments_to_blocks(
     offset: float = 0.0,
     min_start: Optional[float] = None,
     max_end: Optional[float] = None,
+    professional_optimization: bool = False,
 ) -> None:
+    if professional_optimization:
+        subtitle_blocks = collect_professional_subtitle_blocks(
+            segments,
+            offset=offset,
+            min_start=min_start,
+            max_end=max_end,
+        )
+        append_subtitle_blocks_to_blocks(blocks, subtitle_blocks)
+        return
+
     for segment in segments:
         text = (segment.text or "").strip()
         if not text:
@@ -384,6 +439,202 @@ def append_segments_to_blocks(
                 [
                     str(index),
                     f"{format_srt_time(start)} --> {format_srt_time(end)}",
+                    text,
+                ]
+            )
+        )
+
+
+def collect_professional_subtitle_blocks(
+    segments,
+    offset: float = 0.0,
+    min_start: Optional[float] = None,
+    max_end: Optional[float] = None,
+) -> list[SubtitleBlock]:
+    words: list[WordTiming] = []
+    fallback_blocks: list[SubtitleBlock] = []
+
+    for segment in segments:
+        text = (getattr(segment, "text", "") or "").strip()
+        start = offset + max(float(getattr(segment, "start", 0) or 0), 0.0)
+        end = offset + max(float(getattr(segment, "end", 0) or 0), 0.0)
+        start, end = clamp_time_range(start, end, min_start=min_start, max_end=max_end)
+        if text and end > start:
+            fallback_blocks.append(SubtitleBlock(start=start, end=end, text=text))
+
+        for word in getattr(segment, "words", None) or []:
+            word_text = (getattr(word, "word", "") or "").strip()
+            if not word_text:
+                continue
+
+            word_start = offset + max(float(getattr(word, "start", 0) or 0), 0.0)
+            word_end = offset + max(float(getattr(word, "end", 0) or 0), 0.0)
+            word_start, word_end = clamp_time_range(
+                word_start,
+                word_end,
+                min_start=min_start,
+                max_end=max_end,
+            )
+            if word_end <= word_start:
+                continue
+
+            words.append(WordTiming(start=word_start, end=word_end, text=word_text))
+
+    if not words:
+        return fallback_blocks
+
+    return segment_words_into_blocks(words)
+
+
+def clamp_time_range(
+    start: float,
+    end: float,
+    min_start: Optional[float] = None,
+    max_end: Optional[float] = None,
+) -> tuple[float, float]:
+    if min_start is not None:
+        start = max(start, min_start)
+        end = max(end, min_start)
+    if max_end is not None:
+        start = min(start, max_end)
+        end = min(end, max_end)
+    return start, end
+
+
+def segment_words_into_blocks(words: list[WordTiming]) -> list[SubtitleBlock]:
+    blocks: list[SubtitleBlock] = []
+    buffer_words: list[WordTiming] = []
+
+    for word in words:
+        if buffer_words and word.start - buffer_words[-1].end >= PRO_WORD_GAP_CUT_SECONDS:
+            blocks.append(
+                SubtitleBlock(
+                    start=buffer_words[0].start,
+                    end=buffer_words[-1].end,
+                    text=words_to_text(buffer_words),
+                )
+            )
+            buffer_words = []
+
+        buffer_words.append(word)
+        text = words_to_text(buffer_words)
+        duration = buffer_words[-1].end - buffer_words[0].start
+        compact_chars = count_reading_chars(text)
+        hard_char_limit = max_chars_per_line(text) * PRO_MAX_LINES_PER_BLOCK
+        soft_char_limit = max_chars_per_line(text)
+
+        should_cut = (
+            is_sentence_end(word.text)
+            or duration >= PRO_MAX_BLOCK_SECONDS
+            or compact_chars >= hard_char_limit
+            or (
+                is_soft_sentence_boundary(word.text)
+                and duration >= PRO_SOFT_CUT_SECONDS
+                and compact_chars >= soft_char_limit
+            )
+        )
+
+        if should_cut:
+            blocks.append(
+                SubtitleBlock(
+                    start=buffer_words[0].start,
+                    end=buffer_words[-1].end,
+                    text=text,
+                )
+            )
+            buffer_words = []
+
+    if buffer_words:
+        blocks.append(
+            SubtitleBlock(
+                start=buffer_words[0].start,
+                end=buffer_words[-1].end,
+                text=words_to_text(buffer_words),
+            )
+        )
+
+    return enforce_industry_standards(blocks)
+
+
+def words_to_text(words: list[WordTiming]) -> str:
+    text = "".join(word.text for word in words).strip()
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+([、。，．！？!?…])", r"\1", text)
+    return text.strip()
+
+
+def is_sentence_end(text: str) -> bool:
+    return bool(re.search(r"[。．！？!?…]+[\"'」』）\])]*$", text.strip()))
+
+
+def is_soft_sentence_boundary(text: str) -> bool:
+    return bool(re.search(r"[、，,;；:：]+[\"'」』）\])]*$", text.strip()))
+
+
+def count_reading_chars(text: str) -> int:
+    return len(re.sub(r"\s+", "", text))
+
+
+def contains_cjk(text: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]", text))
+
+
+def max_chars_per_line(text: str) -> int:
+    return PRO_CJK_MAX_LINE_CHARS if contains_cjk(text) else PRO_LATIN_MAX_LINE_CHARS
+
+
+def max_cps(text: str) -> float:
+    return PRO_CJK_MAX_CPS if contains_cjk(text) else PRO_LATIN_MAX_CPS
+
+
+def enforce_industry_standards(blocks: list[SubtitleBlock]) -> list[SubtitleBlock]:
+    if not blocks:
+        return []
+
+    adjusted: list[SubtitleBlock] = []
+    sorted_blocks = sorted(blocks, key=lambda block: block.start)
+
+    for index, block in enumerate(sorted_blocks):
+        text = normalize_subtitle_text(block.text)
+        if not text:
+            continue
+
+        start = max(block.start, 0.0)
+        end = max(block.end, start + 0.2)
+        char_count = count_reading_chars(text)
+        target_duration = max(
+            end - start,
+            PRO_MIN_BLOCK_SECONDS,
+            char_count / max_cps(text) if char_count else PRO_MIN_BLOCK_SECONDS,
+        )
+        target_duration = min(target_duration, PRO_MAX_BLOCK_SECONDS)
+
+        next_block = sorted_blocks[index + 1] if index + 1 < len(sorted_blocks) else None
+        max_allowed_end = next_block.start - PRO_MIN_GAP_SECONDS if next_block else None
+        target_end = start + target_duration
+        if max_allowed_end is not None and target_end > max_allowed_end:
+            if max_allowed_end > start + 0.5:
+                target_end = max_allowed_end
+            else:
+                target_end = max(end, start + 0.2)
+
+        adjusted.append(SubtitleBlock(start=start, end=target_end, text=text))
+
+    return fix_subtitle_timings(adjusted)
+
+
+def append_subtitle_blocks_to_blocks(blocks: list[str], subtitle_blocks: list[SubtitleBlock]) -> None:
+    for subtitle_block in subtitle_blocks:
+        text = subtitle_block.text.strip()
+        if not text or subtitle_block.end <= subtitle_block.start:
+            continue
+
+        index = len(blocks) + 1
+        blocks.append(
+            "\n".join(
+                [
+                    str(index),
+                    f"{format_srt_time(subtitle_block.start)} --> {format_srt_time(subtitle_block.end)}",
                     text,
                 ]
             )
@@ -628,13 +879,7 @@ def should_join_without_space(left: str, right: str) -> bool:
 
 
 def normalize_subtitle_text(text: str) -> str:
-    normalized = flatten_subtitle_text(text)
-    normalized = re.sub(r"(\d+)\s*[%％]\s*(ページ|頁)", r"\1\2", normalized)
-    normalized = re.sub(r"第\s*(\d+)\s*課", r"第\1課", normalized)
-    normalized = re.sub(r"第\s+(\d+)", r"第\1", normalized)
-    normalized = re.sub(r"(\d+)\s+(ページ|頁|課|番)", r"\1\2", normalized)
-    normalized = re.sub(r"\s+([、。，．！？!?])", r"\1", normalized)
-    return normalized.strip()
+    return clean_subtitle_text(text)
 
 
 def wrap_subtitle_text(text: str) -> str:

@@ -17,7 +17,18 @@ linguaforge-local/
 │  ├─ Dockerfile
 │  ├─ entrypoint.sh
 │  ├─ main.py
-│  └─ transcriber.py
+│  ├─ srt_cleaner.py
+│  ├─ srt_parser.py
+│  ├─ transcriber.py
+│  └─ subtitle_corrections/
+│     ├─ common_zh.json
+│     ├─ common_ja.json
+│     ├─ common_ko.json
+│     └─ language_learning_terms.json
+├─ tests/
+│  ├─ test_backend_main_helpers.py
+│  ├─ test_srt_cleaner.py
+│  └─ test_transcriber_helpers.py
 ├─ audio/
 │  └─ .gitkeep
 ├─ output/
@@ -142,7 +153,7 @@ docker compose down
 - `mixed_ranges`: 可選。指定少數混合 / 例外語言區間，其餘時間使用 `language` 指定的主要語言。
 - `mixed_ranges_custom`: `true` 或 `false`，預設 `false`。
 - `mixed_ranges_default_language`: 可選。只在 `mixed_ranges_custom=true` 時使用，支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。
-- `professional_optimization`: `true` 或 `false`，預設 `false`。啟用保守的 VAD 短段合併、前後 context padding、過長多句字幕拆分、短字幕合併、重疊時間修正與教材格式修正。
+- `professional_optimization`: `true` 或 `false`，預設 `false`。啟用 word timestamps 字級重切分、保守的 VAD 短段合併、前後 context padding、閱讀速度 / 時長控制、短字幕合併、重疊時間修正與教材格式修正。
 
 `mixed_ranges_custom=false` 時，每行只輸入時間段，該區間會用 `mixed` 逐段偵測：
 
@@ -175,17 +186,68 @@ docker compose down
 
 語言碼支援 `auto`, `mixed`, `ko`, `ja`, `vi`, `zh`, `en`。這適合音檔主體是韓文，但開頭幾秒是日文標題，或某些片段已知是英文 / 中文 / 越文的情況。
 
-`professional_optimization=true` 時，未改變模型本身，但會啟用保守的字幕優化流程：
+`professional_optimization=true` 時，仍使用 faster-whisper `large-v3`，但會啟用較完整的字幕優化流程：
 
+- 轉錄時會要求 `word_timestamps=True`，取得字級時間，再依句界、字數、閱讀速度與最大時長重新合成較完整的字幕段，避免大量 1-2 秒短字幕。
 - mixed / VAD 模式會合併過短且間隔很近的語音段，並在轉錄時給前後約 0.4 秒 context，再把輸出時間裁回原語音區間。
 - 主要語言區段也會用較保守的 VAD 分段，避免長靜音前後的兩句話被塞進同一條字幕。
 - 如果模型仍把過長且含多個句子的字幕放在同一段，會按句號、問號、驚嘆號等句界保守拆分。
 - SRT 後處理會合併太短且相鄰的字幕、修正重疊時間，並盡量避免一個短詞被拆成兩條字幕。
-- 會套用少量教材格式修正，例如 `94%ページ` → `94ページ`、`第 10 課` → `第10課`。
+- 會套用少量高置信度教材與同音字修正，例如 `94%ページ` → `94ページ`、`第 10 課` → `第10課`、`滾瓜爛薯` → `滾瓜爛熟`、`沒看過的生殖` → `沒看過的生詞`。
 
-未啟用時會保持原本轉錄流程與輸出。
+未啟用時會保持原本轉錄流程與輸出。啟用後通常字幕品質較好，但可能稍微增加轉錄時間。
 
 成功時回傳 `text/plain; charset=utf-8` 的 SRT 字幕文字。若 `save_output=true`，後端會把同名 `.srt` 寫入 `output/`。
+
+`POST /srt/clean`
+
+把 Raw SRT 轉成 rule-based Clean SRT。這個 endpoint 不重新轉錄音訊、不接 OpenAI / Ollama / LLM，只做文字層清理，並保留原本時間軸。第一版預設只啟用 safe replacements 和 term replacements；contextual replacements 需要明確打開。
+
+輸入：
+
+```json
+{
+  "srt_text": "1\n00:00:00,000 --> 00:00:02,000\nPatternDrill\n",
+  "language": "zh",
+  "script": "simplified",
+  "enable_contextual_corrections": false,
+  "custom_terms": [
+    "CIA",
+    "MI6",
+    "FSI",
+    "Pattern Drill",
+    "ChatGPT",
+    "Gemini",
+    "procrastinate"
+  ]
+}
+```
+
+輸出：
+
+```json
+{
+  "clean_srt": "1\n00:00:00,000 --> 00:00:02,000\nPattern Drill\n",
+  "changes": [
+    {
+      "index": 1,
+      "before": "PatternDrill",
+      "after": "Pattern Drill",
+      "type": "term_replacement"
+    }
+  ]
+}
+```
+
+Clean SRT 會檢查 SRT 編號、時間格式、`start < end`、空字幕 block 與 block 數量。如果清理後驗證失敗，API 會回傳原始 Raw SRT 作為 `clean_srt`，並在 `changes` 裡標記 `validation_fallback`，避免輸出壞掉的 SRT。
+
+目前外部詞表放在 `backend/subtitle_corrections/`：
+
+- `safe_replacements`: 明顯 ASR 錯字，預設啟用。
+- `term_replacements`: 英文術語 spacing 或固定寫法，預設啟用。
+- `contextual_replacements`: 有誤傷風險的語意替換，預設關閉。
+- `terms`: 會自動產生去空白版本的 term replacement，例如 `PatternDrill` → `Pattern Drill`。
+- `custom_terms`: API 呼叫時額外傳入的專案詞表，也會套用同樣的 term spacing 規則。
 
 `POST /transcribe-job`
 
