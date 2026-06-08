@@ -185,26 +185,52 @@ class BackendMainHelperTests(unittest.TestCase):
             self.assertEqual(self.main.jobs["job"]["srt_text"], "")
 
     def test_clean_srt_endpoint_returns_clean_srt_and_changes(self):
+        http_request = types.SimpleNamespace(
+            headers={},
+            client=types.SimpleNamespace(host="clean-client"),
+        )
         request = self.main.CleanSRTRequest(
             srt_text="1\n00:00:00,000 --> 00:00:01,000\n背得滚瓜烂薯 PatternDrill\n",
             language="zh",
         )
 
-        result = self.main.clean_srt(request)
+        result = self.main.clean_srt(http_request, request)
 
         self.assertIn("背得滚瓜烂熟 Pattern Drill", result["clean_srt"])
         self.assertTrue(result["changes"])
 
     def test_clean_srt_endpoint_rejects_invalid_language(self):
+        http_request = types.SimpleNamespace(
+            headers={},
+            client=types.SimpleNamespace(host="invalid-language-client"),
+        )
         request = self.main.CleanSRTRequest(
             srt_text="1\n00:00:00,000 --> 00:00:01,000\ntest\n",
             language="fr",
         )
 
         with self.assertRaises(self.main.HTTPException) as context:
-            self.main.clean_srt(request)
+            self.main.clean_srt(http_request, request)
 
         self.assertEqual(context.exception.status_code, 400)
+
+    def test_clean_srt_endpoint_is_rate_limited(self):
+        http_request = types.SimpleNamespace(
+            headers={},
+            client=types.SimpleNamespace(host="limited-clean-client"),
+        )
+        request = self.main.CleanSRTRequest(
+            srt_text="1\n00:00:00,000 --> 00:00:01,000\ntest\n",
+            language="zh",
+        )
+        now = time.monotonic()
+        for _ in range(self.main.RATE_LIMIT_REQUESTS):
+            self.main.rate_limit_hits["limited-clean-client"].append(now)
+
+        with self.assertRaises(self.main.HTTPException) as context:
+            self.main.clean_srt(http_request, request)
+
+        self.assertEqual(context.exception.status_code, 429)
 
 
 if __name__ == "__main__":

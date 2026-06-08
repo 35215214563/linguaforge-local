@@ -9,6 +9,8 @@ from faster_whisper.audio import decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
 from .srt_cleaner import clean_subtitle_text
+from .srt_cleaner import flatten_subtitle_text as clean_flatten_subtitle_text
+from .srt_parser import format_srt_time
 
 
 SAMPLE_RATE = 16000
@@ -33,6 +35,11 @@ PRO_CJK_MAX_CPS = 9.0
 PRO_LATIN_MAX_CPS = 17.0
 PRO_SOFT_CUT_SECONDS = 2.4
 PRO_WORD_GAP_CUT_SECONDS = 1.2
+PRO_HARD_CUT_GRACE_CHARS = 8
+CJK_WRAP_BOUNDARY_CHARS = "、。，．！？!?；;：:,，"
+CJK_WRAP_PROHIBITED_START_CHARS = "、。，．！？!?…；;：:,，）」』】)]"
+CJK_WRAP_PROHIBITED_PREFIX_CHARS = "这那哪每各第"
+CJK_WRAP_PROHIBITED_SUFFIX_START_CHARS = "个些种样位条只本张件次天年月日点分秒字词课页人们的了着过学"
 
 
 @dataclass
@@ -102,8 +109,9 @@ class SRTTranscriber:
         srt_text = segments_to_srt(
             segments,
             professional_optimization=professional_optimization,
+            clean_language=language,
         )
-        return optimize_srt_text(srt_text) if professional_optimization else srt_text
+        return optimize_srt_text(srt_text, language=language) if professional_optimization else srt_text
 
     def _transcribe_mixed_to_srt(self, audio_path: str, professional_optimization: bool) -> str:
         audio = decode_audio(audio_path, sampling_rate=SAMPLE_RATE)
@@ -115,7 +123,7 @@ class SRTTranscriber:
             professional_optimization=professional_optimization,
         )
         srt_text = "\n\n".join(blocks) + ("\n" if blocks else "")
-        return optimize_srt_text(srt_text) if professional_optimization else srt_text
+        return optimize_srt_text(srt_text, language="mixed") if professional_optimization else srt_text
 
     def _transcribe_with_mixed_ranges_to_srt(
         self,
@@ -169,7 +177,7 @@ class SRTTranscriber:
             )
 
         srt_text = "\n\n".join(blocks) + ("\n" if blocks else "")
-        return optimize_srt_text(srt_text) if professional_optimization else srt_text
+        return optimize_srt_text(srt_text, language=language) if professional_optimization else srt_text
 
     def _append_language_audio_to_blocks(
         self,
@@ -292,6 +300,7 @@ class SRTTranscriber:
             min_start=base_offset + (speech_start_sample / SAMPLE_RATE) if professional_optimization else None,
             max_end=base_offset + (speech_end_sample / SAMPLE_RATE) if professional_optimization else base_offset + (len(audio) / SAMPLE_RATE),
             professional_optimization=professional_optimization,
+            clean_language=language,
         )
 
     def _append_mixed_audio_to_blocks(
@@ -333,6 +342,7 @@ class SRTTranscriber:
                 offset=offset,
                 max_end=offset + (len(audio) / SAMPLE_RATE),
                 professional_optimization=professional_optimization,
+                clean_language="mixed",
             )
             return
 
@@ -381,15 +391,21 @@ class SRTTranscriber:
                 min_start=base_offset + output_start if professional_optimization else None,
                 max_end=base_offset + (output_end if professional_optimization else speech_end),
                 professional_optimization=professional_optimization,
+                clean_language="mixed",
             )
 
 
-def segments_to_srt(segments, professional_optimization: bool = False) -> str:
+def segments_to_srt(
+    segments,
+    professional_optimization: bool = False,
+    clean_language: str = "auto",
+) -> str:
     blocks: list[str] = []
     append_segments_to_blocks(
         blocks,
         segments,
         professional_optimization=professional_optimization,
+        clean_language=clean_language,
     )
     return "\n\n".join(blocks) + ("\n" if blocks else "")
 
@@ -401,6 +417,7 @@ def append_segments_to_blocks(
     min_start: Optional[float] = None,
     max_end: Optional[float] = None,
     professional_optimization: bool = False,
+    clean_language: str = "auto",
 ) -> None:
     if professional_optimization:
         subtitle_blocks = collect_professional_subtitle_blocks(
@@ -408,6 +425,7 @@ def append_segments_to_blocks(
             offset=offset,
             min_start=min_start,
             max_end=max_end,
+            clean_language=clean_language,
         )
         append_subtitle_blocks_to_blocks(blocks, subtitle_blocks)
         return
@@ -450,6 +468,7 @@ def collect_professional_subtitle_blocks(
     offset: float = 0.0,
     min_start: Optional[float] = None,
     max_end: Optional[float] = None,
+    clean_language: str = "auto",
 ) -> list[SubtitleBlock]:
     words: list[WordTiming] = []
     fallback_blocks: list[SubtitleBlock] = []
@@ -483,7 +502,7 @@ def collect_professional_subtitle_blocks(
     if not words:
         return fallback_blocks
 
-    return segment_words_into_blocks(words)
+    return segment_words_into_blocks(words, clean_language=clean_language)
 
 
 def clamp_time_range(
@@ -501,7 +520,10 @@ def clamp_time_range(
     return start, end
 
 
-def segment_words_into_blocks(words: list[WordTiming]) -> list[SubtitleBlock]:
+def segment_words_into_blocks(
+    words: list[WordTiming],
+    clean_language: str = "auto",
+) -> list[SubtitleBlock]:
     blocks: list[SubtitleBlock] = []
     buffer_words: list[WordTiming] = []
 
@@ -523,26 +545,31 @@ def segment_words_into_blocks(words: list[WordTiming]) -> list[SubtitleBlock]:
         hard_char_limit = max_chars_per_line(text) * PRO_MAX_LINES_PER_BLOCK
         soft_char_limit = max_chars_per_line(text)
 
-        should_cut = (
-            is_sentence_end(word.text)
-            or duration >= PRO_MAX_BLOCK_SECONDS
-            or compact_chars >= hard_char_limit
-            or (
-                is_soft_sentence_boundary(word.text)
-                and duration >= PRO_SOFT_CUT_SECONDS
-                and compact_chars >= soft_char_limit
-            )
+        should_cut = is_sentence_end(word.text) or (
+            is_soft_sentence_boundary(word.text)
+            and duration >= PRO_SOFT_CUT_SECONDS
+            and compact_chars >= soft_char_limit
         )
+        cut_count = len(buffer_words) if should_cut else 0
 
-        if should_cut:
+        if not cut_count and (duration >= PRO_MAX_BLOCK_SECONDS or compact_chars >= hard_char_limit):
+            cut_count = choose_word_buffer_cut_count(
+                buffer_words,
+                hard_char_limit=hard_char_limit,
+                force_cut=duration >= PRO_MAX_BLOCK_SECONDS
+                or compact_chars >= hard_char_limit + PRO_HARD_CUT_GRACE_CHARS,
+            )
+
+        if cut_count:
+            block_words = buffer_words[:cut_count]
             blocks.append(
                 SubtitleBlock(
-                    start=buffer_words[0].start,
-                    end=buffer_words[-1].end,
-                    text=text,
+                    start=block_words[0].start,
+                    end=block_words[-1].end,
+                    text=words_to_text(block_words),
                 )
             )
-            buffer_words = []
+            buffer_words = buffer_words[cut_count:]
 
     if buffer_words:
         blocks.append(
@@ -553,7 +580,7 @@ def segment_words_into_blocks(words: list[WordTiming]) -> list[SubtitleBlock]:
             )
         )
 
-    return enforce_industry_standards(blocks)
+    return enforce_industry_standards(blocks, language=clean_language)
 
 
 def words_to_text(words: list[WordTiming]) -> str:
@@ -561,6 +588,55 @@ def words_to_text(words: list[WordTiming]) -> str:
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"\s+([、。，．！？!?…])", r"\1", text)
     return text.strip()
+
+
+def choose_word_buffer_cut_count(
+    buffer_words: list[WordTiming],
+    hard_char_limit: int,
+    force_cut: bool,
+) -> int:
+    if not buffer_words:
+        return 0
+
+    best_cut = find_natural_word_cut_count(buffer_words, hard_char_limit)
+    if best_cut:
+        return best_cut
+
+    if not force_cut:
+        return 0
+
+    fallback_cut = len(buffer_words)
+    for index in range(len(buffer_words) - 1, 0, -1):
+        prefix = words_to_text(buffer_words[:index])
+        if count_reading_chars(prefix) <= hard_char_limit:
+            fallback_cut = index
+            break
+
+    return max(1, fallback_cut)
+
+
+def find_natural_word_cut_count(buffer_words: list[WordTiming], hard_char_limit: int) -> int:
+    min_chars = max(8, int(hard_char_limit * 0.45))
+    max_chars = hard_char_limit + PRO_HARD_CUT_GRACE_CHARS
+
+    for index in range(len(buffer_words) - 1, 0, -1):
+        prefix = words_to_text(buffer_words[:index])
+        prefix_chars = count_reading_chars(prefix)
+        if prefix_chars < min_chars or prefix_chars > max_chars:
+            continue
+        if is_natural_cjk_cut_text(prefix):
+            return index
+
+    return 0
+
+
+def is_natural_cjk_cut_text(text: str) -> bool:
+    stripped = text.strip()
+    if is_sentence_end(stripped) or is_soft_sentence_boundary(stripped):
+        return True
+    if not contains_cjk(stripped):
+        return False
+    return bool(re.search(r"(了|嘛|吗|呢|吧|啊|哦|啦|咯|对|没错)$", stripped))
 
 
 def is_sentence_end(text: str) -> bool:
@@ -587,7 +663,10 @@ def max_cps(text: str) -> float:
     return PRO_CJK_MAX_CPS if contains_cjk(text) else PRO_LATIN_MAX_CPS
 
 
-def enforce_industry_standards(blocks: list[SubtitleBlock]) -> list[SubtitleBlock]:
+def enforce_industry_standards(
+    blocks: list[SubtitleBlock],
+    language: str = "auto",
+) -> list[SubtitleBlock]:
     if not blocks:
         return []
 
@@ -595,7 +674,7 @@ def enforce_industry_standards(blocks: list[SubtitleBlock]) -> list[SubtitleBloc
     sorted_blocks = sorted(blocks, key=lambda block: block.start)
 
     for index, block in enumerate(sorted_blocks):
-        text = normalize_subtitle_text(block.text)
+        text = normalize_subtitle_text(block.text, language=language)
         if not text:
             continue
 
@@ -680,19 +759,23 @@ def merge_speech_timestamps(speech_timestamps) -> list[dict[str, int]]:
     return merged
 
 
-def optimize_srt_text(srt_text: str) -> str:
+def optimize_srt_text(srt_text: str, language: str = "auto") -> str:
     blocks = parse_srt_blocks(srt_text)
     if not blocks:
         return srt_text
 
     blocks = [
-        SubtitleBlock(block.start, block.end, normalize_subtitle_text(block.text))
+        SubtitleBlock(block.start, block.end, normalize_subtitle_text(block.text, language=language))
         for block in blocks
     ]
     blocks = merge_short_subtitle_blocks(blocks)
     blocks = split_long_sentence_blocks(blocks)
     blocks = [
-        SubtitleBlock(block.start, block.end, wrap_subtitle_text(normalize_subtitle_text(block.text)))
+        SubtitleBlock(
+            block.start,
+            block.end,
+            wrap_subtitle_text(normalize_subtitle_text(block.text, language=language)),
+        )
         for block in blocks
     ]
     blocks = fix_subtitle_timings(blocks)
@@ -863,7 +946,7 @@ def join_subtitle_text(left: str, right: str) -> str:
 
 
 def flatten_subtitle_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip())
+    return clean_flatten_subtitle_text(text)
 
 
 def should_join_without_space(left: str, right: str) -> bool:
@@ -878,12 +961,28 @@ def should_join_without_space(left: str, right: str) -> bool:
     return False
 
 
-def normalize_subtitle_text(text: str) -> str:
-    return clean_subtitle_text(text)
+def normalize_subtitle_text(text: str, language: str = "auto") -> str:
+    return clean_subtitle_text(text, language=language)
 
 
 def wrap_subtitle_text(text: str) -> str:
-    if "\n" in text or len(text) <= PRO_MAX_LINE_CHARS or " " not in text:
+    if "\n" in text:
+        return text
+
+    if contains_cjk(text):
+        normalized = flatten_subtitle_text(text)
+        limit = PRO_CJK_MAX_LINE_CHARS
+        reading_chars = count_reading_chars(normalized)
+        if reading_chars <= limit:
+            return normalized
+        if reading_chars <= limit * PRO_MAX_LINES_PER_BLOCK:
+            split_index = find_cjk_wrap_index(normalized, limit)
+            if split_index <= 0 or split_index >= len(normalized):
+                return normalized
+            return normalized[:split_index].rstrip() + "\n" + normalized[split_index:].lstrip()
+        return normalized
+
+    if len(text) <= PRO_LATIN_MAX_LINE_CHARS or " " not in text:
         return text
 
     words = text.split()
@@ -891,7 +990,7 @@ def wrap_subtitle_text(text: str) -> str:
     current = ""
     for word in words:
         candidate = f"{current} {word}".strip()
-        if current and len(candidate) > PRO_MAX_LINE_CHARS and len(lines) < 1:
+        if current and len(candidate) > PRO_LATIN_MAX_LINE_CHARS and len(lines) < 1:
             lines.append(current)
             current = word
         else:
@@ -901,6 +1000,104 @@ def wrap_subtitle_text(text: str) -> str:
         lines.append(current)
 
     return "\n".join(lines) if len(lines) > 1 else text
+
+
+def find_cjk_wrap_index(text: str, target: int) -> int:
+    character_positions = [index for index, char in enumerate(text) if not char.isspace()]
+    if len(character_positions) <= 1:
+        return len(text)
+
+    target_position = character_positions[min(target, len(character_positions) - 1)]
+    search_start = max(1, target_position - 8)
+    search_end = min(len(text) - 1, target_position + 8)
+    boundary_chars = CJK_WRAP_BOUNDARY_CHARS
+    for index in range(search_end, search_start - 1, -1):
+        if text[index - 1] in boundary_chars:
+            return index
+
+    return adjust_cjk_wrap_index(text, target_position)
+
+
+def adjust_cjk_wrap_index(text: str, index: int) -> int:
+    split_index = max(1, min(index, len(text) - 1))
+
+    while split_index < len(text) and text[split_index] in CJK_WRAP_PROHIBITED_START_CHARS:
+        split_index += 1
+
+    while (
+        split_index < len(text)
+        and text[split_index - 1] in CJK_WRAP_PROHIBITED_PREFIX_CHARS
+        and text[split_index] in CJK_WRAP_PROHIBITED_SUFFIX_START_CHARS
+    ):
+        split_index += 1
+
+    while (
+        split_index < len(text)
+        and text[split_index] in CJK_WRAP_PROHIBITED_SUFFIX_START_CHARS
+        and contains_cjk(text[split_index - 1])
+    ):
+        split_index += 1
+
+    if split_index >= len(text) - 1:
+        return len(text)
+
+    if would_split_ascii_phrase(text, split_index):
+        phrase_bounds = ascii_phrase_bounds(text, split_index)
+        if phrase_bounds:
+            phrase_start, phrase_end = phrase_bounds
+            candidates = [
+                candidate
+                for candidate in (phrase_start, phrase_end)
+                if candidate >= 1 and candidate < len(text) - 1
+            ]
+            if candidates:
+                return min(candidates, key=lambda candidate: abs(candidate - index))
+
+        left_space = text.rfind(" ", 0, split_index)
+        right_space = text.find(" ", split_index)
+        candidates = [
+            candidate
+            for candidate in (left_space, right_space)
+            if candidate >= 1 and candidate < len(text) - 1
+        ]
+        if candidates:
+            split_index = min(candidates, key=lambda candidate: abs(candidate - index))
+        else:
+            split_index = len(text)
+
+    return split_index
+
+
+def ascii_phrase_bounds(text: str, index: int) -> Optional[tuple[int, int]]:
+    start = index
+    while start > 0 and is_ascii_phrase_char(text[start - 1]):
+        start -= 1
+
+    end = index
+    while end < len(text) and is_ascii_phrase_char(text[end]):
+        end += 1
+
+    phrase = text[start:end].strip()
+    if " " not in phrase or len(phrase) > 48:
+        return None
+
+    return start, end
+
+
+def is_ascii_phrase_char(value: str) -> bool:
+    return value.isascii() and (value.isalnum() or value in " _+-'.,")
+
+
+def would_split_ascii_phrase(text: str, index: int) -> bool:
+    left = text[index - 1] if index > 0 else ""
+    right = text[index] if index < len(text) else ""
+    if left.isascii() and left.isalnum() and right.isascii() and right.isalnum():
+        return True
+    if left.isascii() and left.isalnum() and right == " ":
+        return True
+    if left == " " and right.isascii() and right.isalnum():
+        return True
+    return False
 
 
 def fix_subtitle_timings(blocks: list[SubtitleBlock]) -> list[SubtitleBlock]:
@@ -957,20 +1154,3 @@ def normalize_ranges(ranges: list[tuple[float, float, str]], total_duration: flo
             merged[-1] = (prev_start, max(prev_end, end), prev_language)
 
     return merged
-
-
-def format_srt_time(seconds: float) -> str:
-    seconds = max(float(seconds or 0), 0.0)
-
-    whole_seconds = int(seconds)
-    milliseconds = round((seconds - whole_seconds) * 1000)
-
-    if milliseconds == 1000:
-        whole_seconds += 1
-        milliseconds = 0
-
-    hours = whole_seconds // 3600
-    minutes = (whole_seconds % 3600) // 60
-    secs = whole_seconds % 60
-
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"

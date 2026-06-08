@@ -56,6 +56,17 @@ LanguageReactor 可以用
         self.assertIn("Language Reactor 可以用", result.clean_srt)
         self.assertTrue(any(change["type"] == "term_replacement" for change in result.changes))
 
+    def test_short_ascii_replacements_use_word_boundaries(self):
+        updated = self.cleaner.apply_replacement_map(
+            "en sentence en",
+            {"en": "EN"},
+            "term_replacement",
+            1,
+            [],
+        )
+
+        self.assertEqual(updated, "EN sentence EN")
+
     def test_invalid_srt_falls_back_to_raw_text(self):
         raw = """1
 00:00:02,000 --> 00:00:01,000
@@ -78,6 +89,111 @@ bad index
 
     def test_transcriber_shared_text_cleanup_uses_external_dictionary(self):
         self.assertEqual(clean_subtitle_text("记忆供电法和Chat GPT"), "记忆宫殿法和ChatGPT")
+
+    def test_cleaner_repairs_visual_line_wraps_before_replacements(self):
+        raw = """1
+00:00:00,000 --> 00:00:03,000
+把那个换气
+、
+
+2
+00:00:03,100 --> 00:00:06,000
+记
+忆供电法和Ho
+nestly,
+I
+think
+
+3
+00:00:06,100 --> 00:00:09,000
+遇到老外点餐或者开会
+的时候,对吧?
+"""
+
+        result = self.cleaner.clean_rule_based(raw, language="zh")
+
+        self.assertIn("把那个换气、", result.clean_srt)
+        self.assertNotIn("换气\n、", result.clean_srt)
+        self.assertIn("记忆宫殿法和Honestly, I think", result.clean_srt)
+        self.assertIn("遇到老外点餐或者开会的时候，对吧？", result.clean_srt)
+        self.assertNotIn("记 忆供电法", result.clean_srt)
+
+    def test_non_chinese_languages_do_not_apply_chinese_safe_replacements(self):
+        raw = """1
+00:00:00,000 --> 00:00:02,000
+背得滚瓜烂薯 記憶供電法 很有人眼 PatternDrill
+"""
+
+        for language in ("ja", "ko", "en", "vi"):
+            with self.subTest(language=language):
+                result = self.cleaner.clean_rule_based(raw, language=language)
+
+                self.assertIn("背得滚瓜烂薯", result.clean_srt)
+                self.assertIn("記憶供電法", result.clean_srt)
+                self.assertIn("很有人眼", result.clean_srt)
+                self.assertIn("Pattern Drill", result.clean_srt)
+                self.assertNotIn("滚瓜烂熟", result.clean_srt)
+                self.assertNotIn("記憶宮殿法", result.clean_srt)
+                self.assertNotIn("很有吸引力", result.clean_srt)
+
+    def test_japanese_and_korean_text_keep_native_punctuation_and_terms(self):
+        raw = """1
+00:00:00,000 --> 00:00:02,000
+第10課ですか? PatternDrill
+
+2
+00:00:02,100 --> 00:00:04,000
+몇 시부터 해요? Chat GPT
+"""
+
+        ja_result = self.cleaner.clean_rule_based(raw, language="ja")
+        ko_result = self.cleaner.clean_rule_based(raw, language="ko")
+
+        self.assertIn("第10課ですか?", ja_result.clean_srt)
+        self.assertIn("몇 시부터 해요?", ko_result.clean_srt)
+        self.assertIn("Pattern Drill", ja_result.clean_srt)
+        self.assertIn("ChatGPT", ko_result.clean_srt)
+        self.assertNotIn("第10課ですか？", ja_result.clean_srt)
+        self.assertNotIn("몇 시부터 해요？", ko_result.clean_srt)
+
+    def test_auto_and_mixed_are_the_only_non_explicit_modes_using_chinese_dictionary(self):
+        raw = """1
+00:00:00,000 --> 00:00:02,000
+背得滚瓜烂薯
+"""
+
+        for language in ("auto", "mixed", "zh"):
+            with self.subTest(language=language):
+                result = self.cleaner.clean_rule_based(raw, language=language)
+
+                self.assertIn("背得滚瓜烂熟", result.clean_srt)
+
+    def test_long_non_chinese_clean_srt_does_not_apply_chinese_punctuation_or_vocabulary(self):
+        raw = """1
+00:00:00,000 --> 00:00:06,000
+今日は第10課の会話を確認してから、PatternDrillで長い文を自然に言えるように練習します?
+
+2
+00:00:06,100 --> 00:00:12,000
+오늘은 긴 문장을 천천히 읽고 Chat GPT 대신 ChatGPT라는 용어도 그대로 확인해요?
+
+3
+00:00:12,100 --> 00:00:18,000
+This is a long English subtitle with whatImeanis and Ithink, but it should not receive Chinese vocabulary fixes.
+"""
+
+        ja_result = self.cleaner.clean_rule_based(raw, language="ja")
+        ko_result = self.cleaner.clean_rule_based(raw, language="ko")
+        en_result = self.cleaner.clean_rule_based(raw, language="en")
+
+        self.assertIn("今日は第10課の会話を確認してから、Pattern Drill", ja_result.clean_srt)
+        self.assertIn("練習します?", ja_result.clean_srt)
+        self.assertNotIn("練習します？", ja_result.clean_srt)
+        self.assertIn("오늘은 긴 문장을 천천히 읽고 ChatGPT", ko_result.clean_srt)
+        self.assertIn("확인해요?", ko_result.clean_srt)
+        self.assertNotIn("확인해요？", ko_result.clean_srt)
+        self.assertIn("what I mean is and I think", en_result.clean_srt)
+        self.assertNotIn("滚瓜烂熟", ja_result.clean_srt + ko_result.clean_srt + en_result.clean_srt)
 
 
 if __name__ == "__main__":

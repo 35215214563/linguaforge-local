@@ -119,6 +119,135 @@ class TranscriberHelperTests(unittest.TestCase):
             "有一条铁律让我印象深刻",
         )
 
+    def test_normalize_subtitle_text_uses_requested_language_dictionary(self):
+        self.assertEqual(
+            self.transcriber.normalize_subtitle_text("背得滚瓜烂薯", language="zh"),
+            "背得滚瓜烂熟",
+        )
+        self.assertEqual(
+            self.transcriber.normalize_subtitle_text("背得滚瓜烂薯", language="ko"),
+            "背得滚瓜烂薯",
+        )
+
+    def test_wrap_subtitle_text_splits_cjk_and_preserves_english_terms(self):
+        text = "这是一个很长的中文句子，里面包含 Pattern Drill 这个英文术语"
+
+        wrapped = self.transcriber.wrap_subtitle_text(text)
+
+        self.assertIn("\n", wrapped)
+        self.assertIn("Pattern Drill", wrapped)
+
+    def test_wrap_subtitle_text_does_not_start_line_with_punctuation(self):
+        text = "想象一想,你读了十年的游泳手册,把那个换气、"
+
+        wrapped = self.transcriber.wrap_subtitle_text(text)
+
+        self.assertNotIn("\n、", wrapped)
+        self.assertNotIn("\n，", wrapped)
+
+    def test_wrap_subtitle_text_does_not_split_embedded_ascii_word(self):
+        text = "比如说你想记住procrastinate这个字也就是拖延的意思"
+
+        wrapped = self.transcriber.wrap_subtitle_text(text)
+
+        self.assertNotIn("procrastin\nate", wrapped)
+        self.assertIn("procrastinate", wrapped.replace("\n", ""))
+
+    def test_wrap_subtitle_text_handles_long_japanese_sentence(self):
+        text = "今日は第10課の会話を確認してから、Pattern Drillで長い文を自然に言えるように練習します。"
+
+        wrapped = self.transcriber.wrap_subtitle_text(text)
+
+        self.assertNotIn("\n、", wrapped)
+        self.assertNotIn("\n。", wrapped)
+        self.assertIn("Pattern Drill", wrapped)
+
+    def test_wrap_subtitle_text_handles_long_korean_sentence(self):
+        text = "오늘은 긴 문장을 천천히 읽고 ChatGPT라는 용어를 유지하면서 자연스럽게 말하는 연습을 합니다."
+
+        wrapped = self.transcriber.wrap_subtitle_text(text)
+
+        self.assertNotIn("Chat\nGPT", wrapped)
+        self.assertIn("ChatGPT", wrapped.replace("\n", ""))
+
+    def test_wrap_subtitle_text_handles_long_chinese_sentence_with_terms(self):
+        text = "这是一个很长的中文句子，里面包含 procrastinate 和 Pattern Drill 这两个英文术语，所以不能把英文切坏。"
+
+        wrapped = self.transcriber.wrap_subtitle_text(text)
+
+        self.assertNotIn("\n，", wrapped)
+        self.assertNotIn("\n。", wrapped)
+        self.assertIn("procrastinate", wrapped.replace("\n", ""))
+        self.assertIn("Pattern Drill", wrapped)
+
+    def test_word_segmentation_splits_long_japanese_sentence(self):
+        words = [
+            self.transcriber.WordTiming(0.0, 1.0, "今日は第10課の会話を確認してから、"),
+            self.transcriber.WordTiming(1.0, 2.0, "Pattern Drillで長い文を自然に言えるように"),
+            self.transcriber.WordTiming(2.0, 3.0, "練習します。"),
+            self.transcriber.WordTiming(3.0, 4.0, "次の例文も"),
+            self.transcriber.WordTiming(4.0, 5.0, "同じリズムで読みます。"),
+        ]
+
+        blocks = self.transcriber.segment_words_into_blocks(words, clean_language="ja")
+
+        self.assertGreaterEqual(len(blocks), 2)
+        self.assertTrue(all("Pattern\nDrill" not in block.text for block in blocks))
+        self.assertTrue(all(not block.text.startswith(("、", "。")) for block in blocks))
+
+    def test_word_segmentation_splits_long_korean_sentence(self):
+        words = [
+            self.transcriber.WordTiming(0.0, 1.0, "오늘은 긴 문장을 천천히 읽고 "),
+            self.transcriber.WordTiming(1.0, 2.0, "ChatGPT라는 용어를 유지하면서 "),
+            self.transcriber.WordTiming(2.0, 3.0, "자연스럽게 말하는 연습을 합니다."),
+            self.transcriber.WordTiming(3.0, 4.0, "다음 문장도 "),
+            self.transcriber.WordTiming(4.0, 5.0, "같은 속도로 확인합니다."),
+        ]
+
+        blocks = self.transcriber.segment_words_into_blocks(words, clean_language="ko")
+
+        self.assertGreaterEqual(len(blocks), 2)
+        self.assertTrue(all("Chat\nGPT" not in block.text for block in blocks))
+        self.assertIn("ChatGPT", "".join(block.text for block in blocks))
+
+    def test_word_segmentation_splits_long_chinese_sentence_with_terms(self):
+        words = [
+            self.transcriber.WordTiming(0.0, 1.0, "这是一个很长的中文句子，"),
+            self.transcriber.WordTiming(1.0, 2.0, "里面包含procrastinate和Pattern Drill这两个英文术语，"),
+            self.transcriber.WordTiming(2.0, 3.0, "所以不能把英文切坏。"),
+            self.transcriber.WordTiming(3.0, 4.0, "接下来继续说明"),
+            self.transcriber.WordTiming(4.0, 5.0, "字幕应该怎样分段。"),
+        ]
+
+        blocks = self.transcriber.segment_words_into_blocks(words, clean_language="zh")
+
+        self.assertGreaterEqual(len(blocks), 2)
+        combined = "".join(block.text for block in blocks)
+        self.assertIn("procrastinate", combined)
+        self.assertIn("Pattern Drill", combined)
+        self.assertTrue(all(not block.text.startswith(("，", "。")) for block in blocks))
+
+    def test_word_segmentation_prefers_natural_cjk_boundary_before_hard_cut(self):
+        words = [
+            self.transcriber.WordTiming(0.0, 0.8, "突然被点名"),
+            self.transcriber.WordTiming(0.8, 2.2, "大脑就瞬间当机了这种当机也结束了"),
+            self.transcriber.WordTiming(2.2, 3.0, "这是因为"),
+            self.transcriber.WordTiming(3.0, 3.6, "神经科"),
+            self.transcriber.WordTiming(3.6, 5.0, "学层面的问题并不是单纯努力不足"),
+        ]
+
+        blocks = self.transcriber.segment_words_into_blocks(words)
+
+        self.assertGreaterEqual(len(blocks), 2)
+        self.assertTrue(blocks[0].text.endswith("了"))
+        self.assertNotIn("神经科", blocks[0].text)
+
+    def test_format_srt_time_uses_shared_parser_rounding(self):
+        self.assertEqual(
+            self.transcriber.format_srt_time(3599.9995),
+            self.transcriber.format_srt_time(3600.0),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

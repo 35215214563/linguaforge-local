@@ -201,7 +201,7 @@ docker compose down
 
 `POST /srt/clean`
 
-把 Raw SRT 轉成 rule-based Clean SRT。這個 endpoint 不重新轉錄音訊、不接 OpenAI / Ollama / LLM，只做文字層清理，並保留原本時間軸。第一版預設只啟用 safe replacements 和 term replacements；contextual replacements 需要明確打開。
+把 Raw SRT 轉成 rule-based Clean SRT。這個 endpoint 不重新轉錄音訊、不接 OpenAI / Ollama / LLM，只做文字層清理，並保留原本時間軸。第一版預設只啟用 safe replacements 和 term replacements；contextual replacements 需要明確打開。這個 endpoint 也套用和轉錄 API 相同的簡單 IP rate limit。
 
 輸入：
 
@@ -248,6 +248,8 @@ Clean SRT 會檢查 SRT 編號、時間格式、`start < end`、空字幕 block 
 - `contextual_replacements`: 有誤傷風險的語意替換，預設關閉。
 - `terms`: 會自動產生去空白版本的 term replacement，例如 `PatternDrill` → `Pattern Drill`。
 - `custom_terms`: API 呼叫時額外傳入的專案詞表，也會套用同樣的 term spacing 規則。
+
+`common_ja.json` 和 `common_ko.json` 目前是預留詞表位置，方便之後加入日文 / 韓文高置信度修正；第一版主要可用詞表集中在 `common_zh.json` 和 `language_learning_terms.json`。
 
 `POST /transcribe-job`
 

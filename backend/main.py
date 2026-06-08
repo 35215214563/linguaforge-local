@@ -420,7 +420,9 @@ def get_transcription_job_srt(job_id: str) -> Response:
 
 
 @app.post("/srt/clean")
-def clean_srt(request: CleanSRTRequest) -> dict[str, object]:
+def clean_srt(http_request: Request, request: CleanSRTRequest) -> dict[str, object]:
+    check_rate_limit(get_client_key(http_request))
+
     if len(request.srt_text) > MAX_CLEAN_SRT_CHARS:
         raise HTTPException(status_code=413, detail="SRT text too large")
 

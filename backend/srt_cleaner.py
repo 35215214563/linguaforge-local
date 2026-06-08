@@ -12,6 +12,9 @@ from .srt_parser import SRTBlock, SRTValidationError, parse_srt, serialize_srt, 
 
 logger = logging.getLogger(__name__)
 CORRECTIONS_DIR = Path(__file__).resolve().parent / "subtitle_corrections"
+CJK_CHAR_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+CJK_PUNCTUATION = "、。，．！？!?；;：:"
+PUNCTUATION_WITHOUT_LEADING_SPACE = "、。，．！？!?…；;：:,，"
 
 
 @dataclass
@@ -51,6 +54,7 @@ class SRTCleaner:
                     block.text,
                     corrections=corrections,
                     index=block.index,
+                    language=language,
                     enable_contextual_corrections=enable_contextual_corrections,
                 )
                 changes.extend(text_changes)
@@ -119,7 +123,7 @@ class SRTCleaner:
                 changes,
             )
 
-        current = apply_format_normalization(current, index=index, changes=changes)
+        current = apply_format_normalization(current, index=index, changes=changes, language=language)
         return current.strip(), changes
 
     def load_corrections(self, language: str = "auto", custom_terms: Optional[list[str]] = None) -> CorrectionSet:
@@ -174,7 +178,11 @@ class SRTCleaner:
             if not before or before == after or before not in current:
                 continue
 
-            current = current.replace(before, after)
+            updated = replace_text_safely(current, before, after)
+            if updated == current:
+                continue
+
+            current = updated
             changes.append(
                 {
                     "index": index,
@@ -208,13 +216,82 @@ def add_generated_term_replacements(corrections: CorrectionSet) -> None:
 
 
 def flatten_subtitle_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip())
+    current = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not current:
+        return ""
+
+    current = re.sub(r"[ \t\f\v]+", " ", current)
+    current = re.sub(
+        r" *\n+ *",
+        lambda match: subtitle_line_break_replacement(current, match.start(), match.end()),
+        current,
+    )
+    current = re.sub(r" {2,}", " ", current)
+    current = re.sub(rf"\s+([{re.escape(PUNCTUATION_WITHOUT_LEADING_SPACE)}])", r"\1", current)
+    return current.strip()
+
+
+def subtitle_line_break_replacement(source: str, start: int, end: int) -> str:
+    left = previous_non_space_char(source, start)
+    right = next_non_space_char(source, end)
+    if not left or not right:
+        return ""
+
+    if should_join_across_subtitle_line_break(left, right):
+        return ""
+
+    return " "
+
+
+def previous_non_space_char(source: str, index: int) -> str:
+    for position in range(index - 1, -1, -1):
+        if not source[position].isspace():
+            return source[position]
+    return ""
+
+
+def next_non_space_char(source: str, index: int) -> str:
+    for position in range(index, len(source)):
+        if not source[position].isspace():
+            return source[position]
+    return ""
+
+
+def should_join_across_subtitle_line_break(left: str, right: str) -> bool:
+    if right in PUNCTUATION_WITHOUT_LEADING_SPACE:
+        return True
+    if left in "（([「『【" or right in "）」』】)]":
+        return True
+    if is_cjk_char(left) or is_cjk_char(right):
+        return True
+    if left.isascii() and right.isascii() and left.isalnum() and right.isalnum():
+        return True
+    return False
+
+
+def is_cjk_char(value: str) -> bool:
+    return bool(CJK_CHAR_PATTERN.match(value))
+
+
+def replace_text_safely(text: str, before: str, after: str) -> str:
+    if needs_word_boundary(before):
+        return re.sub(rf"(?<![A-Za-z0-9_]){re.escape(before)}(?![A-Za-z0-9_])", after, text)
+
+    return text.replace(before, after)
+
+
+def needs_word_boundary(value: str) -> bool:
+    return bool(
+        re.fullmatch(r"[A-Za-z0-9_+-]+", value)
+        and len(value) <= 6
+    )
 
 
 def apply_format_normalization(
     text: str,
     index: Optional[int],
     changes: list[dict[str, object]],
+    language: str = "auto",
 ) -> str:
     current = text
     patterns = [
@@ -238,7 +315,47 @@ def apply_format_normalization(
             )
             current = updated
 
+    if should_normalize_chinese_punctuation(language):
+        updated = normalize_cjk_punctuation(current)
+        if updated != current:
+            changes.append(
+                {
+                    "index": index,
+                    "before": current,
+                    "after": updated,
+                    "type": "punctuation_normalization",
+                }
+            )
+            current = updated
+
     return current
+
+
+def should_normalize_chinese_punctuation(language: str) -> bool:
+    return (language or "auto").strip().lower() in {"zh", "auto", "mixed"}
+
+
+def normalize_cjk_punctuation(text: str) -> str:
+    current = re.sub(r"(\S)\s*,\s*(\S)", normalize_comma_match, text)
+    current = re.sub(r"(\S)\s*,\s*$", normalize_trailing_comma_match, current)
+    current = re.sub(rf"(?<={CJK_CHAR_PATTERN.pattern})\?", "？", current)
+    current = re.sub(rf"(?<={CJK_CHAR_PATTERN.pattern})!", "！", current)
+    return current
+
+
+def normalize_comma_match(match: re.Match[str]) -> str:
+    left = match.group(1)
+    right = match.group(2)
+    if is_cjk_char(left) or is_cjk_char(right):
+        return f"{left}，{right}"
+    return match.group(0)
+
+
+def normalize_trailing_comma_match(match: re.Match[str]) -> str:
+    left = match.group(1)
+    if is_cjk_char(left):
+        return f"{left}，"
+    return match.group(0)
 
 
 DEFAULT_CLEANER = SRTCleaner()
