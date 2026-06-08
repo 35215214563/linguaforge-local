@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-from typing import Optional
 
 from faster_whisper import WhisperModel
 from faster_whisper.audio import decode_audio
@@ -470,8 +469,6 @@ def append_segments_to_blocks(
     blocks: list[str],
     segments,
     offset: float = 0.0,
-    min_start: Optional[float] = None,
-    max_end: Optional[float] = None,
     min_start: Optional[float] = None,
     max_end: Optional[float] = None,
     professional_optimization: bool = False,

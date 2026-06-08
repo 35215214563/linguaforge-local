@@ -184,10 +184,13 @@
     </div>
     <div class="action-row">
       <button class="btn btn-secondary" id="cleanSrtBtn" disabled>Clean SRT</button>
+      <button class="btn btn-secondary" id="aiCleanSrtBtn" disabled>AI Clean Text SRT</button>
       <button class="btn btn-secondary" id="showRawBtn" disabled>Raw Preview</button>
       <button class="btn btn-secondary" id="showCleanBtn" disabled>Clean Preview</button>
+      <button class="btn btn-secondary" id="showAiCleanBtn" disabled>AI Clean Preview</button>
       <button class="btn btn-dl" id="downloadRawBtn">⬇ Download Raw SRT</button>
       <button class="btn btn-dl" id="downloadCleanBtn" disabled>⬇ Download Clean SRT</button>
+      <button class="btn btn-dl" id="downloadAiCleanBtn" disabled>⬇ Download AI Clean SRT</button>
       <button class="btn btn-cp" id="copyBtn">⎘ Copy Preview</button>
     </div>
   </div>
@@ -205,13 +208,13 @@
     ※ 語言碼支援 auto、mixed、ko、ja、vi、zh、en。<br>
     ※ 如果整條音檔都頻繁混合多種語言，才選 Mixed multilingual；它會先用 VAD 切段，再逐段偵測語言與轉錄。<br>
     ※ 「專業字幕優化」是可選模式；未勾選時會保持原本輸出。勾選後會啟用 faster-whisper <strong>word timestamps</strong>，用字級時間重新合成較完整的字幕段，並套用保守的 VAD 短段合併、前後 context padding、閱讀速度 / 最短時長 / 最大時長控制、短字幕合併、重疊時間修正，以及像 <strong>94%ページ → 94ページ</strong>、<strong>第 10 課 → 第10課</strong>、<strong>滾瓜爛薯 → 滾瓜爛熟</strong> 這類高置信度格式修正。這個模式通常品質較好，但可能稍微更慢。<br>
-    ※ Raw SRT 是後端轉錄直接產生的字幕；Clean SRT 是轉錄完成後按「Clean SRT」另外產生的 rule-based 清理版。Clean 會保留時間軸，套用外部詞表裡的 safe replacements、英文術語 spacing、custom terms 與格式正規化，不會覆蓋 Raw。<br>
+    ※ Raw SRT 是後端轉錄直接產生的字幕；Clean SRT 是轉錄完成後按「Clean SRT」另外產生的 rule-based 清理版。AI Clean Text SRT 會先做 rule-based clean，再只針對每個字幕 block 的文字做 AI 修正；它不合併、不拆分、不改時間軸，也不修復跨 block 斷詞。<br>
     ※ 「檢查模型版本」只會比較本地 cache 與 Hugging Face 遠端版本，不會下載或更新模型。<br>
     ※ 前端只負責上傳音訊、顯示 SRT、下載與複製字幕。後端使用 <strong>FastAPI + faster-whisper large-v3</strong>，不使用 OpenAI paid API，也不需要 API key。<br>
     ※ 第一次執行會下載模型；<strong>large-v3</strong> 在 CPU 上可能比較慢，目前預設 device=cpu、compute_type=int8。
   </div>
 </div>
 
-<script src="js/app.js?v=20260608-0020"></script>
+<script src="js/app.js?v=20260608-0030"></script>
 </body>
 </html>

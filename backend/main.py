@@ -23,8 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
-from starlette.concurrency import run_in_threadpool
 
+from .ai_cleaner import AICleaner
 from .srt_cleaner import SRTCleaner
 from .transcriber import SRTTranscriber
 
@@ -89,6 +89,7 @@ transcriber = SRTTranscriber(
     compute_type="int8",
 )
 srt_cleaner = SRTCleaner()
+ai_cleaner = AICleaner(srt_cleaner=srt_cleaner)
 
 
 class CleanSRTRequest(BaseModel):
@@ -97,6 +98,10 @@ class CleanSRTRequest(BaseModel):
     script: str = ""
     enable_contextual_corrections: bool = False
     custom_terms: list[str] = Field(default_factory=list)
+
+
+class AICleanSRTRequest(CleanSRTRequest):
+    ai_enabled: bool = True
 
 
 @app.middleware("http")
@@ -420,7 +425,6 @@ def get_transcription_job_srt(job_id: str) -> Response:
     )
 
 
-def make_srt_filename(original_filename: Optional[str]) -> str:
 @app.post("/srt/clean")
 def clean_srt(http_request: Request, request: CleanSRTRequest) -> dict[str, object]:
     check_rate_limit(get_client_key(http_request))
@@ -459,6 +463,56 @@ def clean_srt(http_request: Request, request: CleanSRTRequest) -> dict[str, obje
         }
 
     return {"clean_srt": result.clean_srt, "changes": result.changes}
+
+
+@app.post("/srt/ai-clean")
+def ai_clean_srt(http_request: Request, request: AICleanSRTRequest) -> dict[str, object]:
+    check_rate_limit(get_client_key(http_request))
+
+    if len(request.srt_text) > MAX_CLEAN_SRT_CHARS:
+        raise HTTPException(status_code=413, detail="SRT text too large")
+
+    normalized_language = request.language.strip().lower()
+    if normalized_language not in ALLOWED_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail="language must be one of: auto, mixed, ko, ja, vi, zh, en",
+        )
+
+    try:
+        result = ai_cleaner.clean_srt(
+            request.srt_text,
+            language=normalized_language,
+            script=request.script,
+            enable_contextual_corrections=request.enable_contextual_corrections,
+            custom_terms=request.custom_terms,
+            ai_enabled=request.ai_enabled,
+        )
+    except Exception:
+        logger.exception("AI Clean SRT endpoint failed unexpectedly; returning rule-based SRT")
+        rule_result = srt_cleaner.clean_rule_based(
+            request.srt_text,
+            language=normalized_language,
+            script=request.script,
+            enable_contextual_corrections=request.enable_contextual_corrections,
+            custom_terms=request.custom_terms,
+        )
+        return {
+            "ai_clean_srt": rule_result.clean_srt,
+            "rule_based_srt": rule_result.clean_srt,
+            "changes": rule_result.changes,
+            "ai_used": False,
+            "fallback_reason": "AI Clean SRT failed unexpectedly; returned rule-based clean SRT.",
+        }
+
+    return {
+        "ai_clean_srt": result.ai_clean_srt,
+        "rule_based_srt": result.rule_based_srt,
+        "changes": result.changes,
+        "ai_used": result.ai_used,
+        "fallback_reason": result.fallback_reason,
+    }
+
 
 def make_srt_filename(original_filename: Optional[str]) -> str:
     stem = Path(original_filename or "transcription").stem or "transcription"

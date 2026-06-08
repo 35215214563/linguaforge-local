@@ -16,6 +16,11 @@ linguaforge-local/
 ├─ backend/
 │  ├─ Dockerfile
 │  ├─ entrypoint.sh
+│  ├─ ai_cleaner.py
+│  ├─ ai_clients/
+│  │  ├─ __init__.py
+│  │  ├─ base.py
+│  │  └─ ollama_client.py
 │  ├─ main.py
 │  ├─ srt_cleaner.py
 │  ├─ srt_parser.py
@@ -27,6 +32,9 @@ linguaforge-local/
 │     ├─ language_learning_terms.json
 │     └─ protected_phrases.json
 ├─ tests/
+│  ├─ test_ai_cleaner.py
+│  ├─ test_ai_client_config.py
+│  ├─ test_api_ai_clean_srt.py
 │  ├─ test_api_clean_srt.py
 │  ├─ test_backend_main_helpers.py
 │  ├─ test_srt_parser.py
@@ -44,10 +52,6 @@ linguaforge-local/
 ├─ .gitignore
 ├─ docker-compose.yml
 ├─ requirements-dev.txt
-│  └─ .gitkeep
-├─ .dockerignore
-├─ .gitignore
-├─ docker-compose.yml
 ├─ requirements.txt
 └─ README.md
 ```
@@ -281,6 +285,99 @@ Clean SRT 會檢查 SRT 編號、時間格式、`start < end`、空字幕 block 
 - `custom_terms`: API 呼叫時額外傳入的專案詞表，也會套用同樣的 term spacing 規則。
 
 `common_ja.json` 和 `common_ko.json` 目前是預留詞表位置，方便之後加入日文 / 韓文高置信度修正；第一版主要可用詞表集中在 `common_zh.json` 和 `language_learning_terms.json`。
+
+`POST /srt/ai-clean`
+
+把 Raw SRT 轉成 AI Clean Text SRT。流程是：
+
+```text
+Raw SRT
+↓
+Rule-based Clean
+↓
+AI Clean Text
+↓
+Strict Validation
+↓
+AI Clean Text SRT
+```
+
+AI 只是一個字幕文字校正引擎，不是字幕編輯器。後端只會把每個 subtitle block 的 `index` 和文字送給 AI，不送完整 SRT 時間軸，也要求 AI 回傳 JSON array，不允許回傳 SRT。驗證層會拒絕 invalid JSON、錯誤 block 數量、錯誤 index、timestamp、markdown code fence、疑似完整 SRT、過長或過短的文字。
+
+輸入：
+
+```json
+{
+  "srt_text": "1\n00:00:00,000 --> 00:00:02,000\n問答對練\n",
+  "language": "zh",
+  "script": "",
+  "enable_contextual_corrections": false,
+  "custom_terms": [],
+  "ai_enabled": true
+}
+```
+
+AI 使用成功時回傳：
+
+```json
+{
+  "ai_clean_srt": "1\n00:00:00,000 --> 00:00:02,000\n問答對練。\n",
+  "rule_based_srt": "1\n00:00:00,000 --> 00:00:02,000\n問答對練\n",
+  "changes": [
+    {
+      "index": 1,
+      "before": "問答對練",
+      "after": "問答對練。",
+      "type": "ai_text_correction"
+    }
+  ],
+  "ai_used": true,
+  "fallback_reason": null
+}
+```
+
+如果 AI disabled、AI server 不可用、timeout、provider 回傳錯誤、AI output 無法通過完整驗證，API 不會因為 AI 失敗而回傳壞掉的 SRT；它會回退到 rule-based clean：
+
+```json
+{
+  "ai_clean_srt": "<rule-based clean srt>",
+  "rule_based_srt": "<rule-based clean srt>",
+  "changes": [],
+  "ai_used": false,
+  "fallback_reason": "AI clean disabled by environment."
+}
+```
+
+若 AI 回傳的 JSON 整體結構正確，但只有單一 block 的 `clean_text` 不合格，該 block 會回退到 rule-based text；其他合格 block 仍可使用 AI 修正。最終 SRT 會重新 parse 驗證，block count、index、block order、start time、end time 都必須和原始 SRT 一致。
+
+AI Clean Text 的環境變數：
+
+```text
+AI_CLEAN_ENABLED=true
+AI_CLEAN_PROVIDER=ollama
+AI_CLEAN_BASE_URL=http://localhost:11434
+AI_CLEAN_MODEL=qwen3:8b
+AI_CLEAN_TIMEOUT_SECONDS=120
+AI_CLEAN_TEMPERATURE=0
+```
+
+預設 provider 是 `ollama`，預設 model 是 `qwen3:8b`。model name 只是一個 config value；endpoint logic 不綁定任何特定模型。要切換模型只需改環境變數，例如：
+
+```bash
+AI_CLEAN_MODEL=qwen3:14b
+AI_CLEAN_MODEL=qwen3:32b
+AI_CLEAN_MODEL=another-local-model
+```
+
+AI client 透過 `backend/ai_clients/base.py` 抽象，provider-specific HTTP logic 放在 `backend/ai_clients/ollama_client.py`，`backend/main.py` 只呼叫 `AICleaner` service。AI server 是 optional；沒有 Ollama 或 model 時，API 會回退到 rule-based clean。測試使用 fake AI client，不需要真實 Ollama server、不需要 internet，也不新增重型模型 dependency。
+
+重要限制：
+
+- AI Clean Text 不會修復跨 block phrase splitting，例如 `深入探 / 討`、`空 / 間路径`、`自 / 動反擊`、`十分钟对 / 话`。
+- AI Clean Text 不會 merge subtitle blocks。
+- AI Clean Text 不會 split subtitle blocks。
+- AI Clean Text 不會改 timestamps。
+- timing optimization、subtitle block boundary repair、cross-block repair 屬於未來的 Optimize Subtitle Repair 任務，不在這個 endpoint 內。
 
 `POST /transcribe-job`
 

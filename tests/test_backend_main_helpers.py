@@ -9,6 +9,7 @@ import unittest
 from concurrent.futures import Future
 from pathlib import Path
 
+from backend.ai_cleaner import AICleanConfig, AICleaner
 from backend.srt_parser import parse_srt
 
 
@@ -33,6 +34,14 @@ def load_main_module():
     sys.modules["backend.transcriber"] = fake_transcriber_module
     sys.modules.pop("backend.main", None)
     return importlib.import_module("backend.main")
+
+
+class FakeAICleanClient:
+    def __init__(self, response: str):
+        self.response = response
+
+    def clean_blocks(self, blocks: list[dict[str, object]], language: str) -> str:
+        return self.response
 
 
 class BackendMainHelperTests(unittest.TestCase):
@@ -261,6 +270,52 @@ class BackendMainHelperTests(unittest.TestCase):
             self.main.clean_srt(http_request, request)
 
         self.assertEqual(context.exception.status_code, 429)
+
+    def test_ai_clean_srt_endpoint_returns_ai_clean_srt_and_changes(self):
+        self.main.ai_cleaner = AICleaner(
+            srt_cleaner=self.main.srt_cleaner,
+            config_factory=lambda: AICleanConfig(enabled=True, model="test-model"),
+            client_factory=lambda _config: FakeAICleanClient(
+                '[{"index": 1, "clean_text": "问答对练。"}]'
+            ),
+        )
+        http_request = types.SimpleNamespace(
+            headers={},
+            client=types.SimpleNamespace(host="ai-clean-client"),
+        )
+        request = self.main.AICleanSRTRequest(
+            srt_text="1\n00:00:00,000 --> 00:00:01,000\n问答对练\n",
+            language="zh",
+        )
+
+        result = self.main.ai_clean_srt(http_request, request)
+
+        self.assertTrue(result["ai_used"])
+        self.assertIsNone(result["fallback_reason"])
+        self.assertIn("问答对练。", result["ai_clean_srt"])
+        self.assertTrue(any(change["type"] == "ai_text_correction" for change in result["changes"]))
+
+    def test_ai_clean_srt_endpoint_ai_disabled_by_request(self):
+        self.main.ai_cleaner = AICleaner(
+            srt_cleaner=self.main.srt_cleaner,
+            config_factory=lambda: AICleanConfig(enabled=True, model="test-model"),
+            client_factory=lambda _config: FakeAICleanClient("not called"),
+        )
+        http_request = types.SimpleNamespace(
+            headers={},
+            client=types.SimpleNamespace(host="ai-clean-disabled-client"),
+        )
+        request = self.main.AICleanSRTRequest(
+            srt_text="1\n00:00:00,000 --> 00:00:01,000\n问答对练\n",
+            language="zh",
+            ai_enabled=False,
+        )
+
+        result = self.main.ai_clean_srt(http_request, request)
+
+        self.assertFalse(result["ai_used"])
+        self.assertEqual(result["ai_clean_srt"], result["rule_based_srt"])
+        self.assertEqual(result["fallback_reason"], "AI clean disabled by request.")
 
 
 if __name__ == "__main__":

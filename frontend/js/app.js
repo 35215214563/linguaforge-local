@@ -3,6 +3,7 @@ const JOB_API_URL = `${API_BASE_URL}/transcribe-job`;
 const CLEAR_OUTPUT_URL = `${API_BASE_URL}/output`;
 const MODEL_STATUS_URL = `${API_BASE_URL}/model-status`;
 const CLEAN_SRT_URL = `${API_BASE_URL}/srt/clean`;
+const AI_CLEAN_SRT_URL = `${API_BASE_URL}/srt/ai-clean`;
 const ALLOWED_LANGUAGES = new Set(['auto', 'mixed', 'ko', 'ja', 'vi', 'zh', 'en']);
 const LANGUAGE_LABELS = {
   auto: 'Auto',
@@ -21,6 +22,8 @@ let audioFile = null;
 let audioObjectUrl = null;
 let rawSrtContent = '';
 let cleanSrtContent = '';
+let aiCleanSrtContent = '';
+let aiCleanFallbackMessage = '';
 let currentSrtView = 'raw';
 let currentLanguage = 'auto';
 let abortController = null;
@@ -59,10 +62,13 @@ $('transcribeBtn').addEventListener('click', () => {
   startTranscription();
 });
 $('cleanSrtBtn').addEventListener('click', cleanSRT);
+$('aiCleanSrtBtn').addEventListener('click', aiCleanSRT);
 $('showRawBtn').addEventListener('click', () => showSrtView('raw'));
 $('showCleanBtn').addEventListener('click', () => showSrtView('clean'));
+$('showAiCleanBtn').addEventListener('click', () => showSrtView('ai'));
 $('downloadRawBtn').addEventListener('click', downloadRawSRT);
 $('downloadCleanBtn').addEventListener('click', downloadCleanSRT);
+$('downloadAiCleanBtn').addEventListener('click', downloadAiCleanSRT);
 $('copyBtn').addEventListener('click', copySRT);
 $('clearOutputBtn').addEventListener('click', clearOutputFolder);
 $('checkModelBtn').addEventListener('click', checkModelStatus);
@@ -162,6 +168,8 @@ function setFile(file) {
   $('srtBox').textContent = '';
   rawSrtContent = '';
   cleanSrtContent = '';
+  aiCleanSrtContent = '';
+  aiCleanFallbackMessage = '';
   currentSrtView = 'raw';
   updateSrtActionButtons();
   setProgress(0);
@@ -182,6 +190,8 @@ function clearFileState() {
   audioFile = null;
   rawSrtContent = '';
   cleanSrtContent = '';
+  aiCleanSrtContent = '';
+  aiCleanFallbackMessage = '';
   currentSrtView = 'raw';
 
   if (audioObjectUrl) {
@@ -306,6 +316,8 @@ async function startTranscription() {
 
     rawSrtContent = srt;
     cleanSrtContent = '';
+    aiCleanSrtContent = '';
+    aiCleanFallbackMessage = '';
     showSrtView('raw', { syncCurrent: false });
     $('outputSection').style.display = 'block';
     updateSrtActionButtons();
@@ -673,6 +685,8 @@ async function cleanSRT() {
 
     const payload = parseJsonResponse(text);
     cleanSrtContent = payload.clean_srt || rawSrtContent;
+    aiCleanSrtContent = '';
+    aiCleanFallbackMessage = '';
     showSrtView('clean', { syncCurrent: false });
 
     const changes = Array.isArray(payload.changes) ? payload.changes : [];
@@ -688,6 +702,65 @@ async function cleanSRT() {
     setStatus(`Clean SRT 已生成，套用 ${realChangeCount} 項 rule-based 清理。`, 'success');
   } catch (error) {
     setStatus('Clean SRT 失敗：' + error.message, 'error');
+  } finally {
+    button.disabled = false;
+    updateSrtActionButtons();
+  }
+}
+
+async function aiCleanSRT() {
+  syncCurrentSrtFromBox();
+  if (!rawSrtContent.trim()) {
+    setStatus('目前沒有 Raw SRT 可以進行 AI Clean Text', 'error');
+    return;
+  }
+
+  const button = $('aiCleanSrtBtn');
+  button.disabled = true;
+  setStatus('正在生成 AI Clean Text SRT...', 'active');
+
+  try {
+    const response = await fetch(AI_CLEAN_SRT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        srt_text: rawSrtContent,
+        language: currentLanguage,
+        script: '',
+        enable_contextual_corrections: false,
+        custom_terms: [],
+        ai_enabled: true,
+      }),
+    });
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(extractErrorMessage(text, response.status));
+    }
+
+    const payload = parseJsonResponse(text);
+    cleanSrtContent = payload.rule_based_srt || cleanSrtContent || rawSrtContent;
+    aiCleanSrtContent = payload.ai_clean_srt || cleanSrtContent;
+    aiCleanFallbackMessage = payload.fallback_reason || '';
+    showSrtView('ai', { syncCurrent: false });
+
+    const changes = Array.isArray(payload.changes) ? payload.changes : [];
+    const aiChangeCount = changes.filter(change => change.type === 'ai_text_correction').length;
+    updateSrtActionButtons();
+
+    if (!payload.ai_used) {
+      setStatus(`AI Clean Text 未使用 AI，已顯示 rule-based 結果。${aiCleanFallbackMessage}`, 'warn');
+      return;
+    }
+
+    if (aiCleanFallbackMessage) {
+      setStatus(`AI Clean Text 已生成，套用 ${aiChangeCount} 項 AI 修正；部分 block 已回退。${aiCleanFallbackMessage}`, 'warn');
+      return;
+    }
+
+    setStatus(`AI Clean Text SRT 已生成，套用 ${aiChangeCount} 項 AI 修正。`, 'success');
+  } catch (error) {
+    setStatus('AI Clean Text SRT 失敗：' + error.message, 'error');
   } finally {
     button.disabled = false;
     updateSrtActionButtons();
@@ -774,6 +847,10 @@ function createAbortError() {
 
 function syncCurrentSrtFromBox() {
   const text = $('srtBox').textContent || '';
+  if (currentSrtView === 'ai') {
+    aiCleanSrtContent = text;
+    return;
+  }
   if (currentSrtView === 'clean') {
     cleanSrtContent = text;
     return;
@@ -787,12 +864,13 @@ function showSrtView(view, options = {}) {
     syncCurrentSrtFromBox();
   }
 
-  currentSrtView = view === 'clean' ? 'clean' : 'raw';
+  currentSrtView = ['raw', 'clean', 'ai'].includes(view) ? view : 'raw';
   const isClean = currentSrtView === 'clean';
-  $('srtBox').textContent = isClean ? cleanSrtContent : rawSrtContent;
-  $('srtOutputLabel').textContent = isClean
-    ? '（Clean Preview，可直接點選修改）'
-    : '（Raw Preview，可直接點選修改）';
+  const isAiClean = currentSrtView === 'ai';
+  $('srtBox').textContent = isAiClean ? aiCleanSrtContent : (isClean ? cleanSrtContent : rawSrtContent);
+  $('srtOutputLabel').textContent = isAiClean
+    ? '（AI Clean Preview，可直接點選修改）'
+    : (isClean ? '（Clean Preview，可直接點選修改）' : '（Raw Preview，可直接點選修改）');
   updateSrtActionButtons();
 }
 
@@ -800,14 +878,18 @@ function updateSrtActionButtons() {
   if (!$('showRawBtn')) return;
 
   $('cleanSrtBtn').disabled = !rawSrtContent.trim();
+  $('aiCleanSrtBtn').disabled = !rawSrtContent.trim();
   $('showRawBtn').disabled = !rawSrtContent.trim() || currentSrtView === 'raw';
   $('showCleanBtn').disabled = !cleanSrtContent.trim() || currentSrtView === 'clean';
+  $('showAiCleanBtn').disabled = !aiCleanSrtContent.trim() || currentSrtView === 'ai';
   $('downloadRawBtn').disabled = !rawSrtContent.trim();
   $('downloadCleanBtn').disabled = !cleanSrtContent.trim();
+  $('downloadAiCleanBtn').disabled = !aiCleanSrtContent.trim();
 }
 
 function getCurrentSRT() {
   syncCurrentSrtFromBox();
+  if (currentSrtView === 'ai') return aiCleanSrtContent;
   return currentSrtView === 'clean' ? cleanSrtContent : rawSrtContent;
 }
 
@@ -819,6 +901,11 @@ function downloadRawSRT() {
 function downloadCleanSRT() {
   syncCurrentSrtFromBox();
   downloadSRTText(cleanSrtContent, 'clean');
+}
+
+function downloadAiCleanSRT() {
+  syncCurrentSrtFromBox();
+  downloadSRTText(aiCleanSrtContent, 'ai');
 }
 
 function downloadSRTText(text, kind) {
@@ -835,7 +922,11 @@ function downloadSRTText(text, kind) {
   const link = document.createElement('a');
 
   link.href = url;
-  link.download = kind === 'clean' ? `${baseName}.clean.srt` : `${baseName}.srt`;
+  if (kind === 'ai') {
+    link.download = `${baseName}.ai-clean.srt`;
+  } else {
+    link.download = kind === 'clean' ? `${baseName}.clean.srt` : `${baseName}.srt`;
+  }
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
